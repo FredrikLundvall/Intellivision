@@ -24,6 +24,8 @@ ISRVEC      RMB     2
 SYSTEMRAM   ORG     $2F0, $2F0, "-RWBN"
 STACK       RMB     32
 PIXEL_ON    RMB     1
+LEFT_INIT   RMB     1
+RIGHT_INIT  RMB     1
 
         ORG     $5000
 
@@ -54,6 +56,10 @@ MAIN:   PROC
         MVII    #STACK, R6
         MVII    #1, R0
         MVO     R0, PIXEL_ON
+        MVI     $1FE, R0
+        MVO     R0, LEFT_INIT
+        MVI     $1FF, R0
+        MVO     R0, RIGHT_INIT
 
         MVII    #DRAW, R0
         MVO     R0, ISRVEC
@@ -83,14 +89,14 @@ DRAW:   PROC
         MVO     R0, STIC.cs3
         MVO     R0, STIC.bord
 
-        ; Any button on either controller removes the pixel.
+        ; Any change on either controller removes the pixel.  Compare against
+        ; the startup readings so the controller's idle encoding is harmless.
         MVI     $1FE, R0
-        ANDI    #$00FF, R0
-        CMPI    #$00FF, R0
+        XOR     LEFT_INIT, R0
         BNEQ    @@remove
         MVI     $1FF, R0
-        ANDI    #$00FF, R0
-        CMPI    #$00FF, R0
+        XOR     RIGHT_INIT, R0
+        BNEQ    @@remove
         BEQ     @@button_done
 @@remove:
         CLRR    R0
@@ -117,11 +123,20 @@ DRAW:   PROC
         MVO     R0, STIC.mob0_x
         MVII    #STIC.moby_ysize2 + 52, R0
         MVO     R0, STIC.mob0_y
-        MVII    #STIC.moba_gram + STIC.moba_fg2, R0
+        MVII    #STIC.moba_gram + STIC.moba_fg7, R0
         MVO     R0, STIC.mob0_a
 
 @@display:
-        ; Color-stack mode and display enabled.
+        ; Color-stack mode and display enabled.  Turn the border green after
+        ; the controller removes the test pixel.
+        MVI     PIXEL_ON, R0
+        BNEQ    @@black_border
+        MVII    #C_GRN, R0
+        B       @@set_border
+@@black_border:
+        CLRR    R0
+@@set_border:
+        MVO     R0, STIC.bord
         MVI     STIC.mode, R0
         MVO     R0, STIC.viden
 
