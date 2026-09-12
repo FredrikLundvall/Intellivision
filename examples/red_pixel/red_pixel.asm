@@ -24,6 +24,7 @@ ISRVEC      RMB     2
 SYSTEMRAM   ORG     $2F0, $2F0, "-RWBN"
 STACK       RMB     32
 PIXEL_ON    RMB     1
+DISPLAY_INIT RMB    1
 
         ORG     $5000
 
@@ -54,6 +55,8 @@ MAIN:   PROC
         MVII    #STACK, R6
         MVII    #1, R0
         MVO     R0, PIXEL_ON
+        CLRR    R0
+        MVO     R0, DISPLAY_INIT
 
         MVII    #DRAW, R0
         MVO     R0, ISRVEC
@@ -61,7 +64,17 @@ MAIN:   PROC
         MVO     R0, ISRVEC+1
 
         EIS
-@@wait: DECR    PC
+@@wait:
+        ; Left controller Enter is keypad code $0B, encoded as $48 after
+        ; inverting the active-low controller port.
+        MVI     $1FE, R0
+        XORI    #$00FF, R0
+        ANDI    #$00FF, R0
+        CMPI    #$0048, R0
+        BNEQ    @@wait
+        CLRR    R0
+        MVO     R0, PIXEL_ON
+        B       @@wait
         ENDP
 
 ; -----------------------------------------------------------------------------
@@ -74,44 +87,43 @@ MAIN:   PROC
 DRAW:   PROC
         PSHR    R5
 
-        ; Keep the border and color stack black on every frame.  The EXEC
-        ; title screen can leave its green border values in the STIC.
+        ; Keep the color stack black on every frame.  The EXEC title screen
+        ; can leave its color-stack values in the STIC.
         CLRR    R0
         MVO     R0, STIC.cs0
         MVO     R0, STIC.cs1
         MVO     R0, STIC.cs2
         MVO     R0, STIC.cs3
-        MVO     R0, STIC.bord
+        MVI     DISPLAY_INIT, R0
+        BNEQ    @@display
 
-        ; Controller inputs are active-low.  After inversion, the left
-        ; controller's Enter key is keypad code $0B, encoded as $48.
-        MVI     $1FE, R0
-        XORI    #$00FF, R0
-        ANDI    #$00FF, R0
-        CMPI    #$0048, R0
-        BNEQ    @@button_done
-@@remove:
-        CLRR    R0
-        MVO     R0, PIXEL_ON
-@@button_done:
-
-        ; Copy the test bitmap into GRAM card 0.
+        ; GRAM and MOB registers are accessible here during vertical blank.
         CALL    MEMCPY
         DECLE   $3800, PIXEL, 8
 
-        ; MOB 0: visible, normal size, GRAM card 0, red foreground.
-        MVI     PIXEL_ON, R0
-        BEQ     @@display
+        ; MOB 0: visible, normal size, GRAM card 0, white foreground.
         MVII    #STIC.mobx_visb + 80, R0
         MVO     R0, STIC.mob0_x
         MVII    #STIC.moby_ysize2 + 48, R0
         MVO     R0, STIC.mob0_y
         MVII    #STIC.moba_gram + STIC.moba_fg7, R0
         MVO     R0, STIC.mob0_a
+        MVII    #1, R0
+        MVO     R0, DISPLAY_INIT
 
 @@display:
+        ; Update visibility without touching GRAM again.
+        MVI     PIXEL_ON, R0
+        BEQ     @@hidden
+        MVII    #STIC.mobx_visb + 80, R0
+        B       @@visibility_done
+@@hidden:
+        MVII    #80, R0
+@@visibility_done:
+        MVO     R0, STIC.mob0_x
+
         ; Color-stack mode and display enabled.  Turn the border green after
-        ; the controller removes the test pixel.
+        ; the main loop detects left-controller Enter.
         MVI     PIXEL_ON, R0
         BNEQ    @@black_border
         MVII    #C_GRN, R0
