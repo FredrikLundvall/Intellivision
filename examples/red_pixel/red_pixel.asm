@@ -23,6 +23,7 @@ ISRVEC      RMB     2
 
 SYSTEMRAM   ORG     $2F0, $2F0, "-RWBN"
 STACK       RMB     32
+PIXEL_ON    RMB     1
 
         ORG     $5000
 
@@ -51,6 +52,8 @@ TITLE:  BYTE    102, "Single Red Pixel", 0
 MAIN:   PROC
         DIS
         MVII    #STACK, R6
+        MVII    #1, R0
+        MVO     R0, PIXEL_ON
 
         MVII    #DRAW, R0
         MVO     R0, ISRVEC
@@ -71,6 +74,29 @@ MAIN:   PROC
 DRAW:   PROC
         PSHR    R5
 
+        ; Keep the border and color stack black on every frame.  The EXEC
+        ; title screen can leave its green border values in the STIC.
+        CLRR    R0
+        MVO     R0, STIC.cs0
+        MVO     R0, STIC.cs1
+        MVO     R0, STIC.cs2
+        MVO     R0, STIC.cs3
+        MVO     R0, STIC.bord
+
+        ; Any button on either controller removes the pixel.
+        MVI     $1FE, R0
+        ANDI    #$00FF, R0
+        CMPI    #$00FF, R0
+        BNEQ    @@remove
+        MVI     $1FF, R0
+        ANDI    #$00FF, R0
+        CMPI    #$00FF, R0
+        BEQ     @@button_done
+@@remove:
+        CLRR    R0
+        MVO     R0, PIXEL_ON
+@@button_done:
+
         ; Hide all MOBs and clear their collision state.
         CLRR    R0
         MVII    #$0000, R4
@@ -85,20 +111,17 @@ DRAW:   PROC
         DECLE   $3800, PIXEL, 8
 
         ; MOB 0: visible, normal size, GRAM card 0, red foreground.
-        MVII    #STIC.mobx_visb + 77, R0
+        MVI     PIXEL_ON, R0
+        BEQ     @@display
+        MVII    #STIC.mobx_visb + 80, R0
         MVO     R0, STIC.mob0_x
-        MVII    #STIC.moby_ysize2 + 45, R0
+        MVII    #STIC.moby_ysize2 + 48, R0
         MVO     R0, STIC.mob0_y
         MVII    #STIC.moba_gram + STIC.moba_fg2, R0
         MVO     R0, STIC.mob0_a
 
-        ; Black background, color-stack mode, and display enabled.
-        CLRR    R0
-        MVO     R0, STIC.cs0
-        MVO     R0, STIC.cs1
-        MVO     R0, STIC.cs2
-        MVO     R0, STIC.cs3
-        MVO     R0, STIC.bord
+@@display:
+        ; Color-stack mode and display enabled.
         MVI     STIC.mode, R0
         MVO     R0, STIC.viden
 
