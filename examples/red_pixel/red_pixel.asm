@@ -95,16 +95,7 @@ DRAW:   PROC
         MVO     R0, PIXEL_ON
 @@button_done:
 
-        ; Hide all MOBs and clear their collision state.
-        CLRR    R0
-        MVII    #$0000, R4
-        MVII    #32, R1
-@@clear:
-        MVO@    R0, R4
-        DECR    R1
-        BNEQ    @@clear
-
-        ; Copy the one-bit bitmap into GRAM card 0.
+        ; Copy the test bitmap into GRAM card 0.
         CALL    MEMCPY
         DECLE   $3800, PIXEL, 8
 
