@@ -24,8 +24,6 @@ ISRVEC      RMB     2
 SYSTEMRAM   ORG     $2F0, $2F0, "-RWBN"
 STACK       RMB     32
 PIXEL_ON    RMB     1
-LEFT_INIT   RMB     1
-RIGHT_INIT  RMB     1
 
         ORG     $5000
 
@@ -56,10 +54,6 @@ MAIN:   PROC
         MVII    #STACK, R6
         MVII    #1, R0
         MVO     R0, PIXEL_ON
-        MVI     $1FE, R0
-        MVO     R0, LEFT_INIT
-        MVI     $1FF, R0
-        MVO     R0, RIGHT_INIT
 
         MVII    #DRAW, R0
         MVO     R0, ISRVEC
@@ -89,14 +83,15 @@ DRAW:   PROC
         MVO     R0, STIC.cs3
         MVO     R0, STIC.bord
 
-        ; Any change on either controller removes the pixel.  Compare against
-        ; the startup readings so the controller's idle encoding is harmless.
+        ; Controller inputs are active-low.  Invert each port and remove the
+        ; pixel if any input bit is asserted.
         MVI     $1FE, R0
-        XOR     LEFT_INIT, R0
+        COMR    R0
+        TSTR    R0
         BNEQ    @@remove
         MVI     $1FF, R0
-        XOR     RIGHT_INIT, R0
-        BNEQ    @@remove
+        COMR    R0
+        TSTR    R0
         BEQ     @@button_done
 @@remove:
         CLRR    R0
@@ -119,9 +114,9 @@ DRAW:   PROC
         ; MOB 0: visible, normal size, GRAM card 0, red foreground.
         MVI     PIXEL_ON, R0
         BEQ     @@display
-        MVII    #STIC.mobx_visb + 84, R0
+        MVII    #STIC.mobx_visb + 80, R0
         MVO     R0, STIC.mob0_x
-        MVII    #STIC.moby_ysize2 + 52, R0
+        MVII    #STIC.moby_ysize2 + 48, R0
         MVO     R0, STIC.mob0_y
         MVII    #STIC.moba_gram + STIC.moba_fg7, R0
         MVO     R0, STIC.mob0_a
@@ -143,14 +138,8 @@ DRAW:   PROC
         PULR    PC
         ENDP
 
-; The set bit is row 3, column 3 of the 8x8 MOB bitmap.
-PIXEL:  DECLE   $0000
-        DECLE   $0000
-        DECLE   $0000
-        DECLE   %00001000
-        DECLE   $0000
-        DECLE   $0000
-        DECLE   $0000
-        DECLE   $0000
+; Full card used during bring-up so the MOB is unmistakable.
+PIXEL:  DECLE   $FFFF, $FFFF, $FFFF, $FFFF
+        DECLE   $FFFF, $FFFF, $FFFF, $FFFF
 
         INCLUDE "../library/memcpy.asm"
