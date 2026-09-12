@@ -83,16 +83,12 @@ DRAW:   PROC
         MVO     R0, STIC.cs3
         MVO     R0, STIC.bord
 
-        ; Controller inputs are active-low.  Invert each port and remove the
-        ; pixel if any input bit is asserted.
-        MVI     $1FE, R0
-        COMR    R0
-        TSTR    R0
-        BNEQ    @@remove
+        ; Controller inputs are active-low.  After inversion, the right
+        ; controller's Enter key is keypad code $0B, encoded as $48.
         MVI     $1FF, R0
-        COMR    R0
-        TSTR    R0
-        BEQ     @@button_done
+        XORI    #$00FF, R0
+        CMPI    #$0048, R0
+        BNEQ    @@button_done
 @@remove:
         CLRR    R0
         MVO     R0, PIXEL_ON
