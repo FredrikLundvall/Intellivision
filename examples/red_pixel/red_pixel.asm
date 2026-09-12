@@ -68,7 +68,7 @@ MAIN:   PROC
 ; DRAW -- Runs during vertical blank and initializes the display.
 ;
 ; The visible display is 159x96 pixels.  The object field begins eight pixels
-; above and to the left of it, so x=77, y=45 and the fourth bitmap pixel place
+; above and to the left of it, so x=84, y=52 and the fourth bitmap pixel place
 ; the set bit at the center (approximately x=88, y=56).
 ; -----------------------------------------------------------------------------
 DRAW:   PROC
@@ -113,9 +113,9 @@ DRAW:   PROC
         ; MOB 0: visible, normal size, GRAM card 0, red foreground.
         MVI     PIXEL_ON, R0
         BEQ     @@display
-        MVII    #STIC.mobx_visb + 80, R0
+        MVII    #STIC.mobx_visb + 84, R0
         MVO     R0, STIC.mob0_x
-        MVII    #STIC.moby_ysize2 + 48, R0
+        MVII    #STIC.moby_ysize2 + 52, R0
         MVO     R0, STIC.mob0_y
         MVII    #STIC.moba_gram + STIC.moba_fg2, R0
         MVO     R0, STIC.mob0_a
