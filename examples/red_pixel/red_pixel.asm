@@ -87,6 +87,7 @@ DRAW:   PROC
         ; controller's Enter key is keypad code $0B, encoded as $48.
         MVI     $1FE, R0
         XORI    #$00FF, R0
+        ANDI    #$00FF, R0
         CMPI    #$0048, R0
         BNEQ    @@button_done
 @@remove:
