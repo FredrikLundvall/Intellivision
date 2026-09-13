@@ -821,9 +821,139 @@ D:\source\Repos\Intellivision\jzintvSDK\bin\as1600.exe ^
   -o star_dodger.bin -l star_dodger.lst star_dodger.asm
 ```
 
-Compare its ISR and RAM ownership with Levels 2–6, then make one change at a
-time. Do not copy generated `.bin`, `.cfg`, or `.lst` files into the source
-tree.
+### Why this example is organized this way
+
+The integrated game is deliberately split into three layers:
+
+```text
+MAIN loop       reads input, selects the state, applies rules, requests sound
+RAM variables   hold score, lives, positions, state, and pending work
+VBLANK ISR      commits MOB shadows, samples collision, advances frame time
+```
+
+The main loop never assumes that it is running once per video frame. The ISR
+increments `FRAME`, so frame-based work has a stable clock. The main loop owns
+the meaning of a collision; the ISR only copies the STIC result into `HITS`.
+This is the most important design lesson in the final example:
+
+> Hardware-facing code reports facts; game code decides what those facts mean.
+
+### Step 1: identify the cartridge entry path
+
+Start at `ROMHDR`, then follow the pointers:
+
+```text
+ROMHDR -> TITLE -> MAIN -> RESET_GAME -> main loop
+                                  \-> VBLANK_ISR through ISRVEC
+```
+
+`MAIN` disables interrupts while it installs the stack, interrupt vector, and
+initial GRAM cards. It then calls `RESET_GAME`, which gives the game a known
+score, life count, sound state, and pair of MOB positions before interrupts
+are enabled. This prevents a reset from inheriting stale gameplay state.
+
+### Step 2: understand the game state machine
+
+`STATE` selects one of four paths:
+
+| State | What it does | How it leaves |
+| --- | --- | --- |
+| `STATE_TITLE` | waits for the start input | start input enters play |
+| `STATE_PLAY` | moves objects, handles collisions, awards score | lives reaching zero enters game over |
+| `STATE_PAUSE` | leaves gameplay values unchanged | pause input returns to play |
+| `STATE_OVER` | waits without advancing the game | start input calls `RESET_GAME` |
+
+The state value is data, not a collection of scattered jumps. To add a
+countdown or an attract mode, add a state and define its input, update, and
+transition rules separately.
+
+### Step 3: follow one frame of play
+
+During a normal play iteration:
+
+1. `READ_INPUT` reads the active-low left controller and stores a normalized
+   value in `INPUT`.
+2. The play branch changes the starship position when input is present.
+3. The meteor position is maintained by the VBLANK-driven frame timing.
+4. `VBLANK_ISR` writes the RAM positions and attributes into MOB 0 and MOB 1.
+5. The ISR copies MOB 0's collision result into `HITS`.
+6. The next main-loop pass sees `HITS`, decrements `LIVES`, increments `SCORE`,
+   and starts the alert tone.
+
+Notice the one-frame boundary: the main loop does not read a half-updated STIC
+register set, and the ISR does not perform score or life logic.
+
+### Step 4: understand the two GRAM cards
+
+The source copies `STARSHIP_GFX` to GRAM card 0 and `METEOR_GFX` to GRAM card 1.
+The MOB attribute words select GRAM and the appropriate card. The artwork is
+loaded once while the display is disabled; the ISR only writes the small MOB
+attribute and position values afterward.
+
+To add animation, upload a second starship card during initialization and
+change the starship attribute in the ISR from a RAM animation value. Do not
+copy eight bitmap words every frame unless the VBLANK budget has been measured.
+
+### Step 5: understand collision and scoring
+
+`STIC.mob0_c` is a hardware report, not a game rule. The example saves it as
+`HITS`, clears the saved value in the main-loop path, and then applies rules:
+
+```text
+collision -> lives = lives - 1
+          -> score = score + 1
+          -> start alert sound
+          -> game over when lives == 0
+```
+
+The scoring rule is intentionally simple so the data flow is visible. A real
+game might respawn the meteor, add invulnerability frames, flash the border,
+or subtract score instead.
+
+### Step 6: understand the sound request
+
+The collision path starts a short PSG channel-A tone and stores a frame timer.
+The ISR decrements the timer and silences the channel when it expires. This
+keeps the sound duration independent of main-loop speed. A production game
+would replace this direct write with the Level 14 music/effect ownership
+scheme, but the small version is easier to trace.
+
+### Build, run, and inspect in stages
+
+Do not begin by changing the whole file. Use this order:
+
+1. Build and run it unchanged; verify the title and start path.
+2. Change only the title text.
+3. Change the starship X start position.
+4. Change the meteor X start position until a collision is easy to observe.
+5. Change `LIVES` from three to one and confirm game over.
+6. Change the tone period and timer.
+7. Add one animation frame.
+
+After every change, ask which layer owns it: main-loop rules, RAM state, or
+VBLANK hardware commit. That question is more valuable than memorizing the
+instruction sequence.
+
+### What this final lesson does not do
+
+The integrated source is a teaching skeleton, not a finished game. It does
+not yet provide:
+
+* directional decoded input through `SCANHAND`;
+* a scrolling tile map or tile-based collision;
+* formatted score/lives HUD text;
+* robust edge clamping or meteor respawning;
+* invulnerability, animation timing, or multiple enemies;
+* music restoration after a sound effect;
+* fixed-point movement or pixel-perfect collision;
+* ROM bank switching, save data, or a production asset pipeline.
+
+Each omission points back to a preceding lesson. Add one feature at a time and
+keep the integrated source buildable after each change. A sensible next order
+is `SCANHAND`, edge clamping, HUD, meteor respawn, animation, music, and only
+then scrolling or bank switching.
+
+Do not copy generated `.bin`, `.cfg`, or `.lst` files into the source tree.
 
 ## Debugging checklist
 
