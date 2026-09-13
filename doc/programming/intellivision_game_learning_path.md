@@ -25,10 +25,24 @@ so that the new idea in each level is easy to identify.
 | 4 | Game state, frame timing, enemy movement, and collision | `level04_collision.asm` |
 | 5 | A reusable mini-game loop with restart state | `level05_game.asm` |
 | 6 | PSG sound effects, frame timing, and sound shutoff | `level06_sound.asm` |
+| 7 | Decoded controller events with SCANHAND-style debouncing | `level07_scanhand.asm` |
+| 8 | Double-buffered GRAM animation and MOB card selection | `level08_gram_animation.asm` |
+| 9 | Tile-map lookup and solid-tile collision rules | `level09_tile_collision.asm` |
+| 10 | Camera coordinates and coarse tile-map scrolling | `level10_scrolling.asm` |
+| 11 | HUD text, score formatting, and screen layout | `level11_hud_text.asm` |
+| 12 | Complete title/play/game-over state flow | `level12_state_flow.asm` |
+| 13 | Deterministic random seeds and the SDK random routine | `level13_randomness.asm` |
+| 14 | PSG channels, music ownership, and effect priorities | `level14_music_psg.asm` |
+| 15 | VBLANK budgets, ROM banking, and production cartridge layout | `level15_production.asm` |
 
 The examples deliberately use direct polling before introducing `SCANHAND`.
 That makes the hardware model visible. Replace direct polling with
 `examples/task/scanhand.asm` when building a larger production game.
+
+Levels 7–15 deliberately revisit the earlier small programs rather than
+pretending that one large engine is the only way to learn. They are
+standalone checkpoints: assemble each one from its own directory and compare
+the RAM shadows and frame boundary work with the preceding level.
 
 ## Before starting
 
@@ -46,8 +60,10 @@ From each level directory, use:
 as1600 -o level01_title.bin -l level01_title.lst level01_title.asm
 ```
 
-The assembler should report zero errors. Keep the listing file: it is the
-fastest way to inspect symbol addresses and confirm that RAM did not overlap.
+The assembler should report zero errors. A listing is useful for inspecting
+symbol addresses and confirming that RAM did not overlap; remove the generated
+`.bin`, `.cfg`, and `.lst` files after the check so the example directories
+remain source-only.
 
 The examples use the SDK library through relative paths. Run AS1600 from the
 level directory, or adjust the include path for your build system.
@@ -540,6 +556,82 @@ After each level, make one small change:
 * Level 4: make the enemy reverse at two boundaries.
 * Level 5: add a score and a limited number of lives.
 * Level 6: add two sound effects with different periods and durations.
+
+## Level 7: Decode controller input
+
+Raw controller ports are active-low and contain keypad, disc, and button
+bits. A game should not spread those hardware masks through its rules. Decode
+the scan result once, retain held and newly-pressed values, and pass a small
+action word to gameplay. `examples/task/scanhand.asm` supplies the production
+debounce and dispatch implementation; `level07_scanhand.asm` is the small
+standalone bridge that makes the decode boundary visible. `SCANHAND` is a
+background routine, not an ISR: call it regularly and keep its dispatch
+handlers short.
+
+## Level 8: Animate GRAM
+
+Upload GRAM cards while display access is disabled, then animate by changing a
+MOB's card number during VBLANK. Keep the current frame in RAM and commit it
+from the ISR; never rewrite an eight-word bitmap in the middle of active
+display. The example uses two eight-row frames and a frame counter. Add a
+third card only after the two-frame timing is stable.
+
+## Level 9: Collide with a tile map
+
+Store the map as compact tile IDs, calculate `row * map_width + column`, and
+look up the destination tile before committing a movement. Zero can represent
+floor while nonzero IDs represent walls, hazards, or doors. Keep map
+coordinates separate from MOB pixel coordinates so the same rule works while
+the camera scrolls.
+
+## Level 10: Scroll the camera
+
+A scrolling game moves the camera, not the player sprite. Track a world
+coordinate and a tile-aligned camera origin, redraw only the newly exposed
+column or row, and leave HUD cells outside the map viewport. Coarse tile
+scrolling is the reliable first milestone; smooth pixel scrolling can be
+added after the BACKTAB update fits the VBLANK budget.
+
+## Level 11: Draw a HUD
+
+Reserve the top or bottom BACKTAB rows for score, lives, and prompts. Update
+only changed fields and format numbers with `PRINT.FLS` or the numeric
+library routines. A HUD is ordinary display memory, but it has a different
+ownership rule from the scrolling map: camera redraws must never overwrite
+its cells.
+
+## Level 12: Finish the state flow
+
+Use explicit `TITLE`, `PLAY`, and `GAME_OVER` states. Each state owns its
+input, drawing, and transition conditions; a single reset routine restores
+player, score, sound, and collision state. The example intentionally cycles
+the states so the dispatch structure can be observed without requiring a
+complete game.
+
+## Level 13: Add randomness
+
+Seed `RAND` once from a non-repeatable value when possible (or combine reset
+RAM, controller timing, and a counter), then use bounded results for spawn
+positions and variations. Do not use a random value directly as a pointer or
+tile index without range reduction. Reproducible fixed seeds are valuable
+while debugging; change the seed only for the release build.
+
+## Level 14: Music and advanced PSG
+
+Treat channels B/C as music voices and reserve channel A for effects, or
+implement a priority mixer that can temporarily steal a voice. A tracker
+advances one short pattern step per frame; it must not decode an entire song
+inside VBLANK. Save/restore channel enable, period, and volume when an effect
+interrupts music, and always provide a silence path on restart.
+
+## Level 15: VBLANK and production layout
+
+The ISR should do a bounded display handshake, copy a small set of MOB
+shadows, sample collision, and advance frame clocks. Queue expensive work for
+the main loop. For a cartridge build, keep the EXEC header and fixed entry
+points in the fixed bank, put large maps/music in banked ROM, and document
+the bank switch protocol. `CFGVAR` metadata, a repeatable build script, and
+an emulator smoke test turn an assembled demo into a shippable cartridge.
 
 Keep each exercise in a separate copy until it works. This creates a sequence
 of known-good checkpoints that is invaluable when a later optimization breaks
