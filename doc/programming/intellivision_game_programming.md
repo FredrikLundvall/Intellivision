@@ -482,3 +482,752 @@ guide:
 
 When this overview conflicts with a hardware detail, use the programming
 reference files and the working examples as the final authority.
+
+---
+
+# Expanded Programming Notes and Examples
+
+The following notes expand every section above with the decisions that usually
+matter while turning a demo into a game. The code is intentionally small. It
+shows the shape of a solution; game-specific constants, register masks, and
+library requirements must still be checked against `gimini.asm` and the
+relevant example.
+
+## 1. Machine model: one frame, two execution contexts
+
+The CP-1600 does not have a separate graphics processor that can safely accept
+updates at any time. The STIC owns the display bus during active display, so a
+game should treat the frame as two regions:
+
+```text
+active display  -> run game logic, read normal RAM, queue changes
+VBLANK          -> commit STIC/GRAM changes, sample collisions, tick clocks
+```
+
+This is why a game can calculate a new position in the main loop but should
+not write `$0000` directly there. Instead, update a shadow:
+
+```asm
+; Main-loop code: ordinary RAM is safe here.
+        MVI     PLAYER_X, R0
+        ADDI    #1, R0
+        MVO     R0, PLAYER_X
+        MVO     R0, MOB_SHADOW       ; committed later by the ISR
+```
+
+For a slow game, the main loop may run several times per frame. For a busy
+game, it may run less than once per frame. A `FRAME` counter maintained by the
+ISR gives game code a stable clock:
+
+```asm
+VBLANK_ISR:
+        MVO     R0, $20
+        MVI     FRAME, R0
+        INCR    R0
+        MVO     R0, FRAME
+```
+
+Use a separate accumulator when a rule must run exactly once per frame. This
+avoids tying gameplay speed to the number of iterations through the main loop.
+
+## 2. Startup: a minimal working cartridge
+
+The header fields are pointers, not inline objects. A useful minimal cartridge
+looks like this:
+
+```asm
+        CFGVAR  "name" = "Example Game"
+        CFGVAR  "short_name" = "Example"
+        ROMW    16
+        INCLUDE "../library/gimini.asm"
+
+        ORG     $5000
+ROMHDR: BIDECLE ZERO
+        BIDECLE ZERO
+        BIDECLE MAIN
+        BIDECLE ZERO
+        BIDECLE ONES
+        BIDECLE TITLE
+        DECLE   $03C0
+
+ZERO:   DECLE   $0000              ; border control
+        DECLE   $0000              ; Color Stack mode
+        DECLE   C_BLU, C_BLU
+        DECLE   C_BLU, C_BLU
+        DECLE   C_BLU              ; border color
+ONES:   DECLE   1
+
+TITLE:  PROC
+        BYTE    102, "Example Game", 0
+        BEGIN
+        RETURN
+        ENDP
+
+MAIN:   PROC
+        DIS
+        MVII    #STACK, R6
+        ; Install variables and the ISR here.
+        EIS
+@@loop:
+        B       @@loop
+        ENDP
+```
+
+`hello.asm` is the best first comparison when startup fails. If the title
+screen works but the game never begins, inspect the title return path and the
+`MAIN` pointer before investigating graphics. If the title is garbled, check
+the title length byte, the ROM width, and the `ROMHDR` layout.
+
+A title patch is normally data-driven:
+
+```asm
+        CALL    PRINT.FLS
+        DECLE   C_WHT, $23D
+        STRING  "My Studio Presents", 0
+```
+
+The destination is a BACKTAB address. Avoid patching title text after the EXEC
+has returned control to the game unless the title screen is deliberately part
+of the game.
+
+## 3. Memory organization: avoid overlap before debugging code
+
+Memory bugs often look like graphics bugs. Record the start and end of every
+RAM block and leave room for the stack:
+
+```asm
+SCRATCH ORG     $100, $100, "-RWBN"
+ISRVEC  RMB     2
+INPUT   RMB     1
+FRAME   RMB     1
+
+SYSTEM  ORG     $2F0, $2F0, "-RWBN"
+STACK   RMB     32
+STATE   RMB     8
+STICSH  RMB     24
+```
+
+Do not place frequently changing 16-bit values in scratch RAM merely because
+it is convenient. Scratch RAM is byte-wide in the standard configuration;
+system RAM is the natural home for stack frames, MOB shadows, positions, and
+other word-sized state.
+
+A useful convention is to give each block an end symbol:
+
+```asm
+_EOSCR  EQU     $
+        ; Later, inspect the listing and verify _EOSCR is before $2F0.
+```
+
+The controller and PSG addresses overlap conceptually because the AY-3-8914
+exposes both functions through the same device. Do not treat `$01FE` and
+`$01FF` as general RAM. Likewise, `$0200-$02EF` is not free state while the
+background is displayed: it is the live BACKTAB.
+
+## 4. Initialization and frame scheduling
+
+Separate one-time setup from repeatable frame work. For example:
+
+```asm
+INIT_GAME PROC
+        CALL    INIT_BACKGROUND
+        CALL    INIT_PLAYER
+        CALL    INIT_SOUND
+        CLRR    R0
+        MVO     R0, FRAME
+        MVO     R0, INPUT_OLD
+        JR      R5
+        ENDP
+```
+
+Keep initialization idempotent where practical. A restart path can then call
+`INIT_GAME` again without leaving old MOBs, sounds, or timers active.
+
+A simple frame scheduler can turn the ISR counter into several rates:
+
+```asm
+        MVI     FRAME, R0
+        ANDI    #$0003, R0        ; every four frames
+        BNEQ    @@not_due
+        CALL    UPDATE_ENEMIES
+@@not_due:
+```
+
+For more complex games, use a `TICK` flag set by the ISR and cleared by the
+main loop. This prevents a fast main loop from processing the same frame event
+multiple times:
+
+```asm
+VBLANK_ISR:
+        MVO     R0, $20
+        MVII    #1, R0
+        MVO     R0, TICK
+```
+
+The main loop must clear `TICK` before waiting for the next event. Never wait
+for a flag while interrupts are disabled.
+
+## 5. VBLANK: writing a bounded ISR
+
+A compact ISR can copy a 24-word MOB shadow with a library routine or an
+unrolled loop, then return:
+
+```asm
+VBLANK_ISR PROC
+        MVO     R0, $20           ; display-enable handshake first
+
+        MVII    #MOB_SHADOW, R4
+        MVII    #$0000, R5        ; first STIC X register
+        MVII    #8, R2
+@@x:
+        MVI@    R4, R0
+        MVO@    R0, R5
+        INCR    R5
+        DECR    R2
+        BNEQ    @@x
+
+        ; Repeat for Y and attribute words as required by the game.
+        MVI     FRAME, R0
+        INCR    R0
+        MVO     R0, FRAME
+        JR      R5
+        ENDP
+```
+
+The exact return instruction depends on whether the handler is written as an
+EXEC-dispatched function or a custom interrupt replacement. Follow the
+pattern in `balls1`, `bncpix`, or `handdemo`; do not copy only the first and
+last lines of an ISR without matching its register-saving convention.
+
+Measure the expensive parts. A full 240-word BACKTAB fill and a full GRAM
+copy may assemble correctly but still overrun the VBLANK access window. Split
+large work into jobs:
+
+```text
+GRAM queue: card address, source address, word count
+ISR:        copy one queued card, advance queue, return
+```
+
+If the display is intentionally disabled, initialization has a much larger
+access window. Re-enable it only after the initial STIC and GRAM state is
+complete.
+
+## 6. Backgrounds: choosing a display mode
+
+Choose the background mode based on the game rather than trying to force every
+map into one format:
+
+| Mode | Good use |
+| --- | --- |
+| Color Stack | maps with a small repeating palette and text |
+| Colored Squares | fast multicolor cellular or tile effects |
+| Foreground/Background | cards needing independent foreground/background colors |
+
+The 20-column stride is easy to get wrong. A helper for a map cell can compute:
+
+```text
+BACKTAB address = $0200 + (row * 20) + column
+```
+
+For a map stored in ROM, copy one row at a time:
+
+```asm
+        MVII    #LEVEL_MAP, R4
+        MVII    #$0200, R5
+        MVII    #12, R2
+@@row:
+        MVII    #20, R1
+@@col:
+        MVI@    R4, R0
+        MVO@    R0, R5
+        DECR    R1
+        BNEQ    @@col
+        DECR    R2
+        BNEQ    @@row
+```
+
+This code belongs outside the recurring ISR when the map is initialized only
+once. For scrolling or animated maps, update a small dirty rectangle instead
+of rewriting all 240 words.
+
+`mazedemo` is a useful example of changing individual BACKTAB cells as the
+maze is generated. `life` demonstrates the opposite approach: a compact
+simulation buffer is calculated in RAM and then rendered as a screen-wide
+colored-square field.
+
+## 7. Artwork: card numbering and animation
+
+The STIC card number determines both the source memory and the bitmap. GROM
+cards occupy numbers `0..255`; GRAM cards are commonly referred to as
+`256..319`, or as GRAM cards `0..63` in source comments. A MOB attribute must
+select GRAM when its card is programmable.
+
+For an 8x8 frame, keep the data aligned as eight words:
+
+```asm
+FRAME_IDLE:
+        DECLE   %00011000
+        DECLE   %00111100
+        DECLE   %01111110
+        DECLE   %11011011
+        DECLE   %00111000
+        DECLE   %00111000
+        DECLE   %01101100
+        DECLE   %11000110
+```
+
+Animation does not require rewriting the MOB position. It can change the
+attribute card number while the main loop continues to update position:
+
+```asm
+        MVI     ANIM_FRAME, R0
+        ANDI    #$0003, R0
+        ADDI    #GRAM_CARD_BASE, R0
+        XORI    #STIC.moba_gram, R0
+        MVO     R0, PLAYER_A
+```
+
+The actual card-base constants depend on the SDK definitions. Verify them in
+`gimini.asm` and compare with `balls1` or `bncpix`.
+
+When a GRAM frame is changed, use double buffering or update only during a
+known VBLANK slot. Otherwise the STIC may display half of the old bitmap and
+half of the new one for a frame.
+
+## 8. MOBs: positions, attributes, and interactions
+
+Treat an object as three independent decisions:
+
+```text
+where      -> X and Y registers
+what       -> card, GRAM/GROM source, color, flips, size
+how        -> visibility, interaction, priority, resolution
+```
+
+A single visible MOB setup typically contains:
+
+```asm
+        MVII    #STIC.mobx_visb + 76, R0
+        MVO     R0, MOB_SHADOW + 0
+        MVII    #STIC.moby_ysize2 + 44, R0
+        MVO     R0, MOB_SHADOW + 8
+        MVII    #STIC.moba_gram + STIC.moba_fg2, R0
+        MVO     R0, MOB_SHADOW + 16
+```
+
+The symbolic fields are preferable to unexplained hexadecimal masks. The
+object field is larger than the visible background area, so center positions
+must be chosen using the STIC coordinate system, not simply column 10 and row
+6 multiplied by eight.
+
+Collision results are bitfields, not a single boolean. Save them in the ISR
+before the next frame overwrites them:
+
+```asm
+        MVI     $0018, R0         ; MOB 0 interaction result
+        MVO     R0, PLAYER_HITS
+```
+
+Then decode `PLAYER_HITS` in the main loop and apply damage, scoring, or
+bounce rules there. This keeps collision consequences deterministic and avoids
+long rule code in VBLANK.
+
+## 9. Input: raw ports versus decoded events
+
+Raw input is useful for continuous movement. A disc direction can be held,
+converted to velocity, and applied every game tick:
+
+```asm
+        MVI     INPUT, R0
+        ANDI    #DISC_MASK, R0
+        BEQ     @@no_disc
+        CALL    MOVE_PLAYER
+@@no_disc:
+```
+
+Keypad and action buttons are better represented as events. A press event
+should generally happen once, while a held disc direction may repeat. This is
+the distinction that `SCANHAND` and the task queue make explicit.
+
+When debugging a controller, display the raw and inverted values on screen
+before adding game behavior. `handdemo` does this and is a better diagnostic
+than guessing at one bit. Remember that controller input is active-low at the
+hardware port and that the left/right port naming follows the SDK's memory-map
+convention.
+
+For a direct Enter test, use a decoded keypad event when possible:
+
+```asm
+; SCANHAND event payload:
+; low byte = input number, bit 7 = release
+        ANDI    #$007F, R0
+        CMPI    #$000B, R0        ; keypad Enter
+        BNEQ    @@not_enter
+        CALL    START_GAME
+@@not_enter:
+```
+
+Do not compare an unmasked raw port value to `$0B`; raw values include active-
+low encoding and other controller lines.
+
+## 10. Sound: make effects data-driven
+
+A compact sound-effect record can keep the game code independent from PSG
+register details:
+
+```text
+effect: tone-period, duration-in-frames, volume, enable-mask
+```
+
+The main loop requests an effect:
+
+```asm
+        MVII    #SFX_JUMP, R0
+        MVO     R0, SFX_PENDING
+```
+
+The ISR or a frame-synchronized sound routine consumes it:
+
+```asm
+        MVI     SFX_TIMER, R0
+        BEQ     @@sound_off
+        DECR    R0
+        MVO     R0, SFX_TIMER
+        B       @@sound_done
+@@sound_off:
+        MVII    #PSG.tone_a_off, R0
+        MVO     R0, PSG0.chan_enable
+@@sound_done:
+```
+
+The exact SDK field names vary by include definitions, so use the symbolic
+`PSG0` names from `gimini.asm`. Keep the audio mixer state in RAM if music and
+effects share channels. A common policy is to reserve channel C for effects
+and leave channels A/B to music.
+
+Noise is useful for explosions, engines, and percussion. Tone period and
+volume changes should be bounded just like display updates; a long music
+decoder should prepare its next event in the main loop and only commit PSG
+writes on the frame boundary.
+
+## 11. Game state: from input to visible result
+
+A useful update pipeline is:
+
+```text
+read input -> decide intent -> move -> collide -> resolve -> animate
+          -> update score/timers -> publish display and sound shadows
+```
+
+For example, a tile-based player can keep both a precise position and a map
+cell:
+
+```text
+player_x_fp / player_y_fp  fixed-point movement position
+player_col / player_row    collision-map cell
+player_mob_x / player_mob_y rendered STIC coordinates
+```
+
+Do not use the rendered MOB coordinate as the only game position when smooth
+movement or subpixel velocity is needed. `balls1` demonstrates fractional
+positions and velocities; `mazedemo` demonstrates a card/pixel model suited
+to a maze.
+
+Use explicit state transitions for screens:
+
+```text
+STATE_TITLE -> STATE_PLAY -> STATE_PAUSE -> STATE_GAME_OVER
+```
+
+Each state owns input rules, drawing work, and allowed transitions. This is
+safer than leaving title-screen code, game code, and restart code active at
+the same time.
+
+## 12. Source organization: interfaces between files
+
+Includes should expose data and small contracts, not hidden hardware side
+effects. For example:
+
+```asm
+; display.inc contract
+; Input:  MOB_SHADOW contains 24 words
+; Clobbers: R0, R1, R2, R4, R5
+; Output:  STIC registers updated during VBLANK
+```
+
+Keep constants that describe the same format together. A level-map include
+should define width, height, and map data in one place:
+
+```asm
+LEVEL_WIDTH  EQU 20
+LEVEL_HEIGHT EQU 12
+LEVEL_MAP:
+        DECLE  ; 20 card words per row
+```
+
+For large projects, generated assets should be reproducible. `spacepat` is
+the SDK example to study for a multi-file/generated-data build, while the
+small examples are easier to copy when starting a new game.
+
+## 13. Build and test: isolate failures
+
+Use the smallest test ROM that proves the current subsystem:
+
+| Test ROM | Proves |
+| --- | --- |
+| title-only program | header, title, and EXEC return |
+| filled BACKTAB | display mode and color words |
+| one GRAM card | GRAM access and card numbering |
+| one MOB | coordinates, visibility, color, and card source |
+| input diagnostic | port polarity and controller mapping |
+| sound diagnostic | PSG period, enable, and volume |
+
+Keep the listing file. It reveals the final addresses of RAM symbols, ISR
+code, graphics, and generated tables. When a failure appears after adding a
+feature, compare the listing and the last known-good ROM rather than changing
+several timing-sensitive sections at once.
+
+For BIN output, retain the generated configuration file beside the binary
+when using an emulator or cartridge tool. Use ROM output only when the target
+expects a single ROM image. Banked examples require the appropriate banking
+layout; changing only the file extension does not make a normal image
+bank-switched.
+
+## 14. Example index: how to study the SDK
+
+Read examples in increasing complexity:
+
+1. `hello` for header and title flow;
+2. `mazedemo` for BACKTAB and a complete rule loop;
+3. `bncpix` for colored-square drawing and an ISR;
+4. `handdemo` and `task/scanhand.asm` for controller events;
+5. `balls1` for MOB shadows, movement, interaction, and timing;
+6. `life` for a larger RAM-backed simulation;
+7. `game_template` for a deliberately organized starting point;
+8. `spacepat` for generated assets and a multi-file build.
+
+When borrowing code, copy the surrounding memory declarations and timing
+assumptions too. A routine that works in `balls1` may depend on its stack,
+shadow layout, ROM width, or ISR convention.
+
+## 15. References: how to use the documentation
+
+Use the references in this order while developing:
+
+1. `memory_map.txt` to identify the address and access restriction;
+2. `stic.txt` or `graphics_mem.txt` to interpret a register/card word;
+3. `interrupts.txt` to determine when the access is legal;
+4. a working example to copy the calling and return convention;
+5. `gimini.asm` to use the SDK's actual symbolic names;
+6. the listing and emulator output to verify the result.
+
+The documentation uses hardware terminology consistently, but old examples
+may use local names such as `STICSH`, `ISRVEC`, `RNDLO`, or `WTIMER`.
+Understand what a symbol represents before reusing its name in a new module.
+
+---
+
+# Appendix A: Glossary of Terms
+
+## Address and CPU terms
+
+**AS1600** — The SDK assembler used to translate CP-1600 assembly source into
+BIN+CFG or ROM output.
+
+**CP-1600** — The 16-bit processor used by the Intellivision. Its registers,
+instruction timing, and interrupt behavior are documented in
+`intro_to_cp1600.txt` and the CP-1600 reference files.
+
+**R0-R7** — The CP-1600 registers. `R6` is conventionally used as the stack
+pointer by SDK routines; `R7` is the program counter.
+
+**`DECLE`** — An AS1600 directive that emits one or more 16-bit words.
+
+**`BYTE`** — An AS1600 directive that emits byte-oriented data, commonly used
+for title strings and scratch-RAM data.
+
+**`RMB`** — Reserve memory bytes/words according to the active memory width.
+Use it in RAM declarations rather than putting writable state in ROM.
+
+**`ORG`** — Selects the address at which subsequent code or data is assembled.
+The SDK uses separate `ORG` blocks for scratch RAM, system RAM, and cartridge
+ROM.
+
+**`ROMW`** — Selects the ROM word width expected by the assembler and target
+layout. Match the working example being used as a base.
+
+**`CFGVAR`** — Adds cartridge metadata such as name, author, year, and
+description to the build.
+
+**EXEC** — The Intellivision Executive ROM. It starts cartridges, displays
+the title screen, dispatches interrupts, and supplies common routines.
+
+**ROM header** — The table at the start of a cartridge that tells EXEC where
+to find the game entry point, title, picture lists, and initial display state.
+
+**BIN+CFG** — A two-file assembler output format useful for emulator and
+Intellicart-style loading. The binary and its configuration describe the
+memory mapping together.
+
+**ROM output** — A single ROM image. It is useful for targets that expect a
+complete image and for layouts such as bank-switched cartridges.
+
+## Display terms
+
+**STIC** — Standard Television Interface Circuit. It generates the display,
+manages background cards and MOBs, and produces the VBLANK interrupt.
+
+**VBLANK** — Vertical blanking interval between active display regions. The
+CPU temporarily gains access to STIC registers and graphics memory.
+
+**Display-enable handshake** — A write to STIC address `$0020` during each
+VBLANK. The written value is not important; omitting the write eventually
+blanks the display.
+
+**BACKTAB** — The 240-word background-card table at `$0200-$02EF`, arranged
+as 20 columns by 12 rows.
+
+**Background card** — An 8x8 picture selected by a BACKTAB word. It normally
+comes from GROM or GRAM.
+
+**GROM** — Graphics ROM containing 256 built-in cards, including the standard
+character set.
+
+**GRAM** — Graphics RAM containing 64 programmable cards. It is the normal
+place for player, enemy, item, and special-effect artwork.
+
+**Card number** — The index of an 8x8 picture. GROM uses cards 0 through 255;
+GRAM cards are often described as cards 256 through 319 in combined numbering.
+
+**Color Stack mode** — A STIC mode where background colors are selected from
+the four color-stack registers and card attributes.
+
+**Colored Squares mode** — A mode where BACKTAB words directly produce
+colored-square patterns. It is useful for cellular simulations and simple
+abstract graphics.
+
+**Foreground/Background mode** — A mode that gives a card independent
+foreground and background color information, subject to card availability
+restrictions.
+
+**MOB** — Movable Object. One of eight hardware sprites controlled through
+STIC registers.
+
+**MOB shadow** — A RAM copy of the MOB X, Y, and attribute words. Game logic
+updates the shadow; the ISR commits it to the STIC.
+
+**Object field** — The larger coordinate field used by MOBs. It extends beyond
+the visible 20-by-12 background-card area, which allows objects to move partly
+off-screen.
+
+**Interaction** — The STIC's term for MOB collision and overlap detection.
+Results are reported in the MOB collision registers.
+
+**Horizontal/vertical delay** — STIC registers that shift the object field
+relative to the visible display. They are useful for scrolling.
+
+## Input and sound terms
+
+**Active-low** — A signal convention where zero means asserted or pressed.
+The master controller ports use this convention and normally need inversion
+before game logic interprets them.
+
+**SCANHAND** — SDK controller-scanning code that decodes keypad, action
+buttons, and disc directions, performs debouncing, and schedules events.
+
+**Edge detection** — Comparing current input with the previous input to find a
+new press or release instead of treating a held button as many presses.
+
+**Debouncing** — Filtering rapid electrical transitions so one physical press
+becomes one stable game event.
+
+**PSG** — Programmable Sound Generator. The AY-3-8914-compatible sound chip
+with three tone channels, noise, envelopes, and controller I/O.
+
+**Tone period** — A divisor written to a PSG channel. Smaller periods produce
+higher tone frequencies.
+
+**Envelope** — A programmable volume progression used to shape tones.
+
+**Noise generator** — The PSG source for pseudo-random noise effects such as
+explosions, engines, and percussion.
+
+## Game-architecture terms
+
+**Main loop** — Repeating game-code path for input, rules, physics, map
+collisions, scoring, and preparation of hardware shadows.
+
+**ISR** — Interrupt service routine. On the Intellivision this normally means
+the VBLANK handler installed at `$0100/$0101`.
+
+**Frame counter** — A variable incremented by the ISR to provide a stable
+video-rate clock.
+
+**Fixed-point value** — An integer that reserves some low bits for a
+fractional part. It allows smooth movement while the STIC still receives
+integer pixel coordinates.
+
+**Dirty rectangle** — A small changed region of the BACKTAB or graphics
+surface. Updating only dirty regions saves CPU and VBLANK time.
+
+**State machine** — A set of named game modes, such as title, play, pause,
+and game over, with explicit transitions between them.
+
+**Task queue** — A queue of deferred work or input events used by SDK task
+routines. It lets scanning code report events without executing all game
+logic inside the scanner.
+
+**Bank switching** — Hardware or cartridge logic that changes which ROM region
+is visible at an address range. Banked games need a matching ROM layout and
+build process; they cannot be made banked by changing an output filename.
+
+# Appendix B: Quick-reference tables
+
+## Common hardware addresses
+
+| Symbolic purpose | Address | Access note |
+| --- | ---: | --- |
+| STIC display enable | `$0020` | VBLANK |
+| STIC mode | `$0021` | VBLANK |
+| color stack | `$0028-$002B` | VBLANK |
+| border color | `$002C` | VBLANK |
+| VBLANK vector | `$0100-$0101` | normal scratch RAM |
+| master PSG | `$01F0-$01FD` | normal writes |
+| right controller | `$01FE` | active-low input |
+| left controller | `$01FF` | active-low input |
+| BACKTAB | `$0200-$02EF` | live display memory |
+| GROM | `$3000-$37FF` | VBLANK or blank display |
+| GRAM | `$3800-$3AFF` | VBLANK or blank display |
+
+## A practical debugging checklist
+
+1. Does the assembler report zero errors and warnings?
+2. Does the title screen appear and return to `MAIN`?
+3. Is the stack initialized before any `CALL`?
+4. Is the ISR vector written with interrupts disabled?
+5. Does the ISR write `$0020` every frame?
+6. Is the background mode consistent with the BACKTAB word format?
+7. Is GRAM loaded before the MOB references its card?
+8. Is the MOB X coordinate nonzero and in the object-field coordinate system?
+9. Are controller values inverted, masked, and debounced?
+10. Are collision results copied before the next frame?
+11. Are sound and graphics updates bounded?
+12. Does the program still work after a reset and after several minutes?
+
+## A minimal development progression
+
+```text
+title only
+  -> solid background
+  -> one GROM character
+  -> one GRAM card
+  -> one visible MOB
+  -> controller diagnostic
+  -> player movement
+  -> collision result
+  -> sound effect
+  -> enemies, map rules, scoring, and animation
+```
+
+This progression is intentionally conservative. It makes timing, addressing,
+and polarity errors visible before they are hidden inside a full game.
