@@ -1,0 +1,427 @@
+# Learning to Make an Intellivision Game
+
+This tutorial is a practical course in making an Intellivision game with the
+AS1600 assembler. It starts with a title screen and ends with a small
+gameplay framework containing a player, an enemy, input, collision detection,
+sound, and a frame-driven update loop.
+
+The source for every level is outside this document in:
+
+```text
+examples/learning_game/
+```
+
+Each level is a separate cartridge source file. Build and test one level
+before moving to the next. The examples are intentionally small and repetitive
+so that the new idea in each level is easy to identify.
+
+## What you will learn
+
+| Level | New idea | Source |
+| --- | --- | --- |
+| 1 | EXEC header, title, text, and a program entry point | `level01_title.asm` |
+| 2 | BACKTAB background, VBLANK, and direct controller polling | `level02_input.asm` |
+| 3 | GRAM artwork and one controllable MOB | `level03_player.asm` |
+| 4 | Game state, frame timing, enemy movement, and collision | `level04_collision.asm` |
+| 5 | A reusable mini-game loop with sound and restart state | `level05_game.asm` |
+
+The examples deliberately use direct polling before introducing `SCANHAND`.
+That makes the hardware model visible. Replace direct polling with
+`examples/task/scanhand.asm` when building a larger production game.
+
+## Before starting
+
+You need:
+
+* the SDK checkout;
+* `bin/as1600.exe`;
+* an Intellivision emulator such as jzIntv;
+* a way to copy the generated `.bin` and `.cfg` files to the emulator's ROM
+  directory.
+
+From each level directory, use:
+
+```text
+as1600 -o level01_title.bin -l level01_title.lst level01_title.asm
+```
+
+The assembler should report zero errors. Keep the listing file: it is the
+fastest way to inspect symbol addresses and confirm that RAM did not overlap.
+
+The examples use the SDK library through relative paths. Run AS1600 from the
+level directory, or adjust the include path for your build system.
+
+## Level 1: Put a title and message on the screen
+
+Start with the smallest useful cartridge. The goal is not yet to make a game;
+it is to prove that the assembler, ROM header, EXEC title screen, and library
+include path work.
+
+Read `examples/learning_game/level01_title.asm` alongside
+`examples/hello/hello.asm`.
+
+### Step 1: metadata and ROM width
+
+`CFGVAR` adds descriptive cartridge metadata. `ROMW 16` selects the normal
+16-bit example layout:
+
+```asm
+        CFGVAR  "name" = "Learning Game 1"
+        ROMW    16
+        INCLUDE "../../library/gimini.asm"
+```
+
+### Step 2: provide the EXEC header
+
+The header points EXEC at `MAIN` and `TITLE`. `ZERO` supplies the initial
+display mode and colors:
+
+```asm
+ROMHDR: BIDECLE ZERO
+        BIDECLE ZERO
+        BIDECLE MAIN
+        BIDECLE ZERO
+        BIDECLE ONES
+        BIDECLE TITLE
+        DECLE   $03C0
+ZERO:   DECLE   0, 0
+        DECLE   C_BLU, C_BLU, C_BLU, C_BLU, C_BLU
+ONES:   DECLE   1
+```
+
+### Step 3: customize the title and enter the program
+
+The title procedure returns to EXEC. `MAIN` writes a message and then returns.
+At this level there is no game loop:
+
+```asm
+TITLE:  PROC
+        BYTE    102, "Learning 1", 0
+        BEGIN
+        RETURN
+        ENDP
+
+MAIN:   PROC
+        BEGIN
+        CALL    CLRSCR
+        CALL    PRINT.FLS
+        DECLE   C_YEL, $200 + 5*20 + 4
+        STRING  "PRESS RESET FOR LEVEL 2", 0
+        RETURN
+        ENDP
+```
+
+### Checkpoint
+
+You have learned how a cartridge starts, where screen text goes, and how
+library routines are called. If this level fails, do not add game logic yet.
+Compare it with `hello.asm` and fix the header or build command first.
+
+## Level 2: Read a controller and move a background cell
+
+Level 2 introduces the two-part game architecture:
+
+* the main loop reads input and changes game state;
+* the VBLANK ISR performs the display-enable handshake.
+
+The player is represented by one colored BACKTAB cell. This is less visually
+interesting than a sprite, but it teaches address calculation and makes input
+bugs easy to see.
+
+### Step 1: reserve state and install the ISR
+
+```asm
+SCRATCH ORG     $100, $100, "-RWBN"
+ISRVEC  RMB     2
+INPUT   RMB     1
+
+SYSTEM  ORG     $2F0, $2F0, "-RWBN"
+STACK   RMB     32
+PLAYER  RMB     1
+```
+
+Initialize the vector with interrupts disabled:
+
+```asm
+        DIS
+        MVII    #STACK, R6
+        MVII    #VBLANK_ISR, R0
+        MVO     R0, ISRVEC
+        SWAP    R0
+        MVO     R0, ISRVEC+1
+        EIS
+```
+
+### Step 2: fill a background
+
+`FILLMEM` writes 240 words beginning at `$0200`. The exact word is interpreted
+by the selected STIC mode; start with the known-good colored-square pattern in
+the example:
+
+```asm
+        MVII    #$0200, R4
+        MVII    #$00F0, R1
+        MVII    #$1352, R0
+        CALL    FILLMEM
+```
+
+### Step 3: invert active-low input
+
+The example reads the left controller and moves the cell when a direction bit
+is present:
+
+```asm
+        MVI     $01FF, R0
+        XORI    #$00FF, R0
+        ANDI    #$00FF, R0
+        MVO     R0, INPUT
+```
+
+This is raw hardware input, not a decoded keypad event. The bit masks are
+kept visible in the source so they can be replaced after testing on the
+target emulator or console.
+
+### Step 4: update a BACKTAB address
+
+The example keeps a current cell address in `PLAYER`. For a production game,
+keep row and column separately and calculate `$0200 + row*20 + column`.
+Writing the cell during active display is unsafe, so the example changes the
+RAM state in the main loop and commits it in the ISR.
+
+### Checkpoint
+
+Hold a direction and confirm the colored cell changes. If it moves constantly,
+your code is treating a held input as an edge event. If it moves in the wrong
+direction, inspect the active-low inversion and mask. If the screen blanks,
+check that the ISR writes `$0020` every frame.
+
+## Level 3: Replace the cell with a GRAM MOB
+
+Level 3 adds custom artwork. The player is now an 8x8 GRAM bitmap displayed by
+MOB 0.
+
+### Step 1: define an 8x8 bitmap
+
+Bit 7 is the leftmost pixel:
+
+```asm
+PLAYER_GFX:
+        DECLE   %00111100
+        DECLE   %01111110
+        DECLE   %11111111
+        DECLE   %11011011
+        DECLE   %11111111
+        DECLE   %01100110
+        DECLE   %00100100
+        DECLE   %00000000
+```
+
+Copy eight words to `$3800` while the display is disabled during startup:
+
+```asm
+        CALL    MEMCPY
+        DECLE   $3800, PLAYER_GFX, 8
+```
+
+### Step 2: create a MOB shadow
+
+The main loop changes `PLAYER_X` and `PLAYER_Y`. The ISR writes those values
+to STIC registers:
+
+```asm
+SYSTEM  ORG     $2F0, $2F0, "-RWBN"
+STACK   RMB     32
+PLAYER_X RMB    1
+PLAYER_Y RMB    1
+PLAYER_A RMB    1
+```
+
+The attribute word selects GRAM and a foreground color. Use the symbolic
+fields from `gimini.asm`:
+
+```asm
+        MVII    #STIC.mobx_visb + 76, R0
+        MVO     R0, PLAYER_X
+        MVII    #STIC.moby_ysize2 + 44, R0
+        MVO     R0, PLAYER_Y
+        MVII    #STIC.moba_gram + STIC.moba_fg2, R0
+        MVO     R0, PLAYER_A
+```
+
+### Step 3: commit the MOB during VBLANK
+
+```asm
+        MVI     PLAYER_X, R0
+        MVO     R0, STIC.mob0_x
+        MVI     PLAYER_Y, R0
+        MVO     R0, STIC.mob0_y
+        MVI     PLAYER_A, R0
+        MVO     R0, STIC.mob0_a
+```
+
+An X coordinate of zero disables a MOB. Coordinates are in the STIC object
+field, so the visible center is not simply BACKTAB column 10, row 6.
+
+### Checkpoint
+
+First show the player without input. Then add the Level 2 movement code.
+Debug in this order: GRAM copy, attribute source/card, nonzero X coordinate,
+Y coordinate, and finally movement. `bncpix`, `mob_test`, and `balls1` are
+useful comparisons.
+
+## Level 4: Add an enemy, frame timing, and collision
+
+Level 4 changes the display into a game scene. It adds:
+
+* a second MOB;
+* an enemy that moves once per video frame;
+* a collision result copied from the STIC;
+* a score or hit state in ordinary RAM.
+
+### Step 1: keep game state separate from hardware state
+
+```asm
+PLAYER_X RMB 1
+PLAYER_Y RMB 1
+ENEMY_X  RMB 1
+ENEMY_Y  RMB 1
+HITS     RMB 1
+FRAME    RMB 1
+```
+
+The main loop owns movement and rules. The ISR owns STIC register access and
+copies `STIC.mob0_c` into `HITS`.
+
+### Step 2: use a frame counter
+
+```asm
+        MVI     FRAME, R0
+        ANDI    #$0003, R0
+        BNEQ    @@not_due
+        CALL    MOVE_ENEMY
+@@not_due:
+```
+
+This makes the enemy move every four VBLANKs regardless of how quickly the
+main loop spins.
+
+### Step 3: enable interaction
+
+Set the interaction bit in the MOB attribute words. During VBLANK, read the
+collision register:
+
+```asm
+        MVI     STIC.mob0_c, R0
+        MVO     R0, HITS
+        CLRR    R0
+        MVO     R0, STIC.mob0_c
+```
+
+Decode the saved result in the main loop. Do not run score, life, or restart
+logic inside the ISR.
+
+### Checkpoint
+
+Make the enemy move predictably before enabling collision. Then deliberately
+place the two MOBs on top of each other and verify that the hit state changes.
+If collision is always zero, check interaction bits, MOB visibility, and the
+order in which the ISR reads and clears the register.
+
+## Level 5: Turn the prototype into a small game
+
+The final example combines the previous levels into a tiny game loop:
+
+```text
+TITLE -> PLAY -> GAME_OVER
+```
+
+The player moves, the enemy patrols, a collision triggers a sound effect, and
+the action button restarts the game.
+
+### Step 1: define states
+
+```asm
+STATE_PLAY EQU 0
+STATE_OVER EQU 1
+```
+
+State-specific code keeps title, gameplay, and restart behavior from
+interfering with each other:
+
+```asm
+        MVI     STATE, R0
+        TSTR    R0
+        BNEQ    GAME_OVER
+        CALL    UPDATE_PLAY
+        B       @@loop
+GAME_OVER:
+        CALL    UPDATE_GAME_OVER
+        B       @@loop
+```
+
+### Step 2: queue sound instead of mixing it into collision code
+
+The collision rule writes `SFX_PENDING`. A sound routine consumes the request
+and programs the PSG:
+
+```asm
+        MVII    #1, R0
+        MVO     R0, SFX_PENDING
+```
+
+This keeps the gameplay routine independent of PSG register details and makes
+it possible to replace a one-shot sound with a music/effects driver later.
+
+### Step 3: use a restart path
+
+`RESET_GAME` restores player, enemy, score, state, and sound state. It should
+also clear any stale collision result and restore the MOB visibility bits.
+Restarting through one routine is safer than partially reinitializing values
+from several input branches.
+
+### Step 4: compare with production examples
+
+After completing Level 5, study:
+
+* `examples/mazedemo` for map and rule logic;
+* `examples/balls1` for fractional motion and multiple MOBs;
+* `examples/handdemo` and `examples/task/scanhand.asm` for decoded events;
+* `examples/life` for a larger RAM-backed simulation;
+* `examples/game_template` for a framework layout.
+
+The final learning example is intentionally not a full commercial engine. Its
+purpose is to give each subsystem a visible home that can be expanded.
+
+## A disciplined debugging method
+
+When a new level fails, return to the last working level and add one subsystem:
+
+1. assemble and inspect errors;
+2. run the title screen;
+3. verify `MAIN` is entered;
+4. verify a stable background;
+5. verify the ISR display handshake;
+6. verify one input bit;
+7. verify one GRAM card;
+8. verify one MOB;
+9. verify collision;
+10. verify sound;
+11. only then add more actors or map logic.
+
+Do not debug input, GRAM timing, collisions, and sound simultaneously. A
+successful assembly only proves that the syntax and symbols are valid; it
+does not prove that a STIC access happened during its legal timing window.
+
+## Exercises
+
+After each level, make one small change:
+
+* Level 1: change the title and message colors.
+* Level 2: add screen-edge clamping.
+* Level 3: draw a second animation frame.
+* Level 4: make the enemy reverse at two boundaries.
+* Level 5: add a score and a limited number of lives.
+
+Keep each exercise in a separate copy until it works. This creates a sequence
+of known-good checkpoints that is invaluable when a later optimization breaks
+the display.

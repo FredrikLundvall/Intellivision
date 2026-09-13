@@ -1,0 +1,883 @@
+00000000 MEMMAP                     000001F0 PSG0                       
+000000F0 PSG1                       00000000 PSG                        
+00000000 STIC                       00000100 SCRATCH                    
+00000100 ISRVEC                     00000102 INPUT                      
+00000103 FRAME                      00000104 HITS                       
+00000105 STATE                      00000106 SFX                        
+000002F0 SYSTEM                     000002F0 STACK                      
+00000310 PLAYER_X                   00000311 PLAYER_Y                   
+00000312 ENEMY_X                    00000313 ENEMY_Y                    
+00000314 PLAYER_A                   00000315 ENEMY_A                    
+00000000 STATE_PLAY                 00000001 STATE_OVER                 
+00005000 ROMHDR                     0000500D ZERO                       
+00005028 MAIN                       00005014 ONES                       
+00005015 TITLE                      000050B9 VBLANK_ISR                 
+00005051 RESET_GAME                 00005036 MAIN.loop                  
+00005073 READ_INPUT                 00005046 MAIN.over                  
+0000507C UPDATE_PLAY                000050A5 UPDATE_SOUND               
+00005087 UPDATE_PLAY.enemy          00005098 UPDATE_PLAY.hit            
+00005096 UPDATE_PLAY.save           000050A4 UPDATE_PLAY.done           
+000050B8 UPDATE_SOUND.done          000050DD PLAYER_GFX                 
+000050E5 MEMCPY                     000050E8 MEMCPY.1                   
+00005104 MEMCPY.end                 000050F4 MEMCPY.loop                
+00005107 MEMCPY.done                
+                                ; Learning Game Level 5: player, enemy, collision, state, and PSG effect.
+                                        CFGVAR  "name" = "Learning Game 5 - Mini Game"
+                                        CFGVAR  "short_name" = "Learning 5"
+                                        CFGVAR  "description" = "A small frame-driven game framework."
+                                        ROMW    16
+                                        INCLUDE "../../library/gimini.asm"
+                                ;* ======================================================================== *;
+                                ;*  The routines and data in this file (gimini.asm) are dedicated to the    *;
+                                ;*  public domain via the Creative Commons CC0 v1.0 license by its author,  *;
+                                ;*  Joseph Zbiciak.                                                         *;
+                                ;*                                                                          *;
+                                ;*          https://creativecommons.org/publicdomain/zero/1.0/              *;
+                                ;* ======================================================================== *;
+
+                                ;;==========================================================================;;
+                                ;; GIMINI structure definitions.  Defines the memory map and peripherals.   ;;
+                                ;;==========================================================================;;
+
+                                ;; ======================================================================== ;;
+                                ;;  Overall Memory Map                                                      ;;
+                                ;;  MEMMAP -- Structure containing overall system memory map.               ;;
+                                ;; ======================================================================== ;;
+0x0                             MEMMAP          STRUCT  0
+0x0                             @@stic          QEQU    $0000 ;..$003F  ; Standard Television Interface Circuit
+0x80                            @@voice         QEQU    $0080 ;..$0081  ; Voice Synthesizer
+0xF0                            @@psg1          QEQU    $00F0 ;..$00FF  ; Secondary Programmable Sound Gen.
+0x100                           @@dataram       QEQU    $0100 ;..$01EF  ; 8-bit Data RAM
+0x1F0                           @@psg0          QEQU    $01F0 ;..$01FF  ; Primary Programmable Sound Generator
+0x200                           @@backtab       QEQU    $0200 ;..$02EF  ; 16-bit Display RAM
+0x2F0                           @@sysram        QEQU    $02F0 ;..$035F  ; 16-bit System RAM (incl. Stack)
+0x400                           @@exec2         QEQU    $0400 ;..$04FF  ; Executive ROM expansion
+0x1000                          @@exec          QEQU    $1000 ;..$1FFF  ; Executive ROM
+0x3000                          @@grom          QEQU    $3000 ;..$37FF  ; Graphics ROM
+0x3800                          @@gram          QEQU    $3800 ;..$39FF  ; Graphics RAM
+0x3A00                          @@gram_alias1   QEQU    $3A00 ;..$3BFF  ; Graphics RAM alias 
+0x3C00                          @@gram_alias2   QEQU    $3C00 ;..$3DFF  ; Graphics RAM alias
+0x3E00                          @@gram_alias3   QEQU    $3E00 ;..$3FFF  ; Graphics RAM alias
+0x4000                          @@stic_alias1   QEQU    $4000 ;..$403F  ; STIC alias (incomplete decode)
+0x8000                          @@stic_alias2   QEQU    $8000 ;..$803F  ; STIC alias (incomplete decode)
+                                                ENDS
+
+
+
+                                ;;==========================================================================;;
+                                ;; AY8914 Programmable Sound Generator Register Definitions.                ;;
+                                ;;                                                                          ;;
+                                ;; PSG0 -- Primary PSG in the Gimini Console.                               ;;
+                                ;; PSG1 -- Secondary PSG, available when expansion is attached.             ;;
+                                ;; PSG  -- Constants and bitfields common to both PSG's.                    ;;
+                                ;;                                                                          ;;
+                                ;; Each PSG contains the following set of registers:                        ;;
+                                ;;                                                                          ;;
+                                ;;     Register pairs:                                                      ;;
+                                ;;                                                                          ;;
+                                ;;       7   6   5   4   3   2   1   0 | 7   6   5   4   3   2   1   0      ;;
+                                ;;     +---------------+---------------|-------------------------------+    ;;
+                                ;;  R4 |    unused     |                Channel A Period               | R0 ;;
+                                ;;     +---------------+---------------|-------------------------------+    ;;
+                                ;;  R5 |    unused     |                Channel B Period               | R1 ;;
+                                ;;     +---------------+---------------|-------------------------------+    ;;
+                                ;;  R6 |    unused     |                Channel C Period               | R2 ;;
+                                ;;     +---------------+---------------|-------------------------------+    ;;
+                                ;;  R7 |                        Envelope Period                        | R3 ;;
+                                ;;     +-------------------------------|-------+-----------------------+    ;;
+                                ;;                                                                          ;;
+                                ;;     Single registers:                                                    ;;
+                                ;;                                                                          ;;
+                                ;;         7       6       5       4       3       2       1       0        ;;
+                                ;;     +---------------+-----------------------+-----------------------+    ;;
+                                ;;     | I/O Port Dir  |    Noise Enables      |     Tone Enables      |    ;;
+                                ;;  R8 |   0   |   0   |   C   |   B   |   A   |   C   |   B   |   A   |    ;;
+                                ;;     +-------+-------+-------+-------+-------+-------+-------+-------+    ;;
+                                ;;  R9 |            unused     |              Noise Period             |    ;;
+                                ;;     +-----------------------+-------+-------+-------+-------+-------+    ;;
+                                ;;     |                               |   Envelope Characteristics    |    ;;
+                                ;; R10 |            unused             | CONT  |ATTACK | ALTER | HOLD  |    ;;
+                                ;;     +---------------+---------------+-------+-------+-------+-------+    ;;
+                                ;; R11 |    unused     | A Envl Select |    Channel A Volume Level     |    ;;
+                                ;;     +---------------+---------------+-------------------------------+    ;;
+                                ;; R12 |    unused     | B Envl Select |    Channel B Volume Level     |    ;;
+                                ;;     +---------------+---------------+-------------------------------+    ;;
+                                ;; R13 |    unused     | C Envl Select |    Channel C Volume Level     |    ;;
+                                ;;     +---------------+---------------+-------------------------------+    ;;
+                                ;;                                                                          ;;
+                                ;;==========================================================================;;
+
+                                                ;;==========================================================;;
+                                                ;; Primary PSG in the main console.                         ;;
+                                                ;;==========================================================;;
+0x1F0                           PSG0            STRUCT  $01F0
+
+                                                ;;----------------------------------------------------------;;
+                                                ;; Register address definitions                             ;;
+                                                ;;----------------------------------------------------------;;
+0x1F0                           @@chn_a_lo      QEQU    $ + 0   ; Channel A period, lower 8 bits of 12
+0x1F1                           @@chn_b_lo      QEQU    $ + 1   ; Channel B period, lower 8 bits of 12
+0x1F2                           @@chn_c_lo      QEQU    $ + 2   ; Channel C period, lower 8 bits of 12
+0x1F3                           @@envlp_lo      QEQU    $ + 3   ; Envelope period,  lower 8 bits of 16
+
+0x1F4                           @@chn_a_hi      QEQU    $ + 4   ; Channel A period, upper 4 bits of 12
+0x1F5                           @@chn_b_hi      QEQU    $ + 5   ; Channel B period, upper 4 bits of 12
+0x1F6                           @@chn_c_hi      QEQU    $ + 6   ; Channel C period, upper 4 bits of 12
+0x1F7                           @@envlp_hi      QEQU    $ + 7   ; Envelope period,  upper 8 bits of 16
+
+0x1F8                           @@chan_enable   QEQU    $ + 8   ; Channel enables (bits 3-5 noise, 0-2 tone)
+0x1F9                           @@noise         QEQU    $ + 9   ; Noise period (5 bits)
+0x1FA                           @@envelope      QEQU    $ + 10  ; Envelope type/trigger (4 bits)
+
+0x1FB                           @@chn_a_vol     QEQU    $ + 11  ; Channel A volume / Envelope select (6 bits)
+0x1FC                           @@chn_b_vol     QEQU    $ + 12  ; Channel B volume / Envelope select (6 bits)
+0x1FD                           @@chn_c_vol     QEQU    $ + 13  ; Channel C volume / Envelope select (6 bits)
+
+0x1FE                           @@io_port0      QEQU    $ + 14  ; I/O port 0 (8 bits)
+0x1FF                           @@io_port1      QEQU    $ + 15  ; I/O port 1 (8 bits)
+
+                                                ENDS
+
+                                                ;;==========================================================;;
+                                                ;; Secondary PSG in the expansion unit.                     ;;
+                                                ;;==========================================================;;
+0xF0                            PSG1            STRUCT  $00F0
+
+                                                ;;----------------------------------------------------------;;
+                                                ;; Register address definitions                             ;;
+                                                ;;----------------------------------------------------------;;
+0xF0                            @@chn_a_lo      QEQU    $ + 0   ; Channel A period, lower 8 bits of 12
+0xF1                            @@chn_b_lo      QEQU    $ + 1   ; Channel B period, lower 8 bits of 12
+0xF2                            @@chn_c_lo      QEQU    $ + 2   ; Channel C period, lower 8 bits of 12
+0xF3                            @@envlp_lo      QEQU    $ + 3   ; Envelope period,  lower 8 bits of 16
+
+0xF4                            @@chn_a_hi      QEQU    $ + 4   ; Channel A period, upper 4 bits of 12
+0xF5                            @@chn_b_hi      QEQU    $ + 5   ; Channel B period, upper 4 bits of 12
+0xF6                            @@chn_c_hi      QEQU    $ + 6   ; Channel C period, upper 4 bits of 12
+0xF7                            @@envlp_hi      QEQU    $ + 7   ; Envelope period,  upper 8 bits of 16
+
+0xF8                            @@chan_enable   QEQU    $ + 8   ; Channel enables (bits 3-5 noise, 0-2 tone)
+0xF9                            @@noise         QEQU    $ + 9   ; Noise period (5 bits)
+0xFA                            @@envelope      QEQU    $ + 10  ; Envelope type/trigger (4 bits)
+
+0xFB                            @@chn_a_vol     QEQU    $ + 11  ; Channel A volume / Envelope select (6 bits)
+0xFC                            @@chn_b_vol     QEQU    $ + 12  ; Channel B volume / Envelope select (6 bits)
+0xFD                            @@chn_c_vol     QEQU    $ + 13  ; Channel C volume / Envelope select (6 bits)
+
+0xFE                            @@io_port0      QEQU    $ + 14  ; I/O port 0 (8 bits)
+0xFF                            @@io_port1      QEQU    $ + 15  ; I/O port 1 (8 bits)
+
+                                                ENDS
+
+                                                ;;==========================================================;;
+                                                ;; Useful Constants / Bit-field definitions.                ;;
+                                                ;;==========================================================;;
+0x0                             PSG             STRUCT  $0000   ; Constants, etc. common to both PSGs.
+
+                                                ;;----------------------------------------------------------;;
+                                                ;; Bits to OR together for Channel Enable word              ;;
+                                                ;;----------------------------------------------------------;;
+0x0                             @@tone_a_on     QEQU    00000000b   
+0x0                             @@tone_b_on     QEQU    00000000b
+0x0                             @@tone_c_on     QEQU    00000000b
+0x0                             @@noise_a_on    QEQU    00000000b
+0x0                             @@noise_b_on    QEQU    00000000b
+0x0                             @@noise_c_on    QEQU    00000000b
+
+0x1                             @@tone_a_off    QEQU    00000001b
+0x2                             @@tone_b_off    QEQU    00000010b
+0x4                             @@tone_c_off    QEQU    00000100b
+0x8                             @@noise_a_off   QEQU    00001000b
+0x10                            @@noise_b_off   QEQU    00010000b
+0x20                            @@noise_c_off   QEQU    00100000b
+
+                                                ;;----------------------------------------------------------;;
+                                                ;; Bits to OR together for Envelope Type                    ;;
+                                                ;;----------------------------------------------------------;;
+0x8                             @@envl_cont     QEQU    00001000b   ; Continue
+0x4                             @@envl_attack   QEQU    00000100b   ; Attack (vs. Decay)
+0x2                             @@envl_alter    QEQU    00000010b   ; Alternate
+0x1                             @@envl_hold     QEQU    00000001b   ; Hold
+
+                                                ;;----------------------------------------------------------;;
+                                                ;; Volume levels                                            ;;
+                                                ;;----------------------------------------------------------;;
+0x0                             @@vol_0         QEQU    0
+0x1                             @@vol_1         QEQU    1
+0x2                             @@vol_2         QEQU    2
+0x3                             @@vol_3         QEQU    3
+0x4                             @@vol_4         QEQU    4
+0x5                             @@vol_5         QEQU    5
+0x6                             @@vol_6         QEQU    6
+0x7                             @@vol_7         QEQU    7
+0x8                             @@vol_8         QEQU    8
+0x9                             @@vol_9         QEQU    9
+0xA                             @@vol_10        QEQU    10
+0xB                             @@vol_11        QEQU    11
+0xC                             @@vol_12        QEQU    12
+0xD                             @@vol_13        QEQU    13
+0xE                             @@vol_14        QEQU    14
+0xF                             @@vol_15        QEQU    15
+0x3F                            @@vol_envl      QEQU    63
+
+                                                ENDS
+
+                                ;;==========================================================================;;
+                                ;; AY8900 Standard Television Interface Circuit                             ;;
+                                ;;                                                                          ;;
+                                ;; STIC -- Register definitions, constants and bitfields                    ;;
+                                ;;                                                                          ;;
+                                ;; The Standard Television Interface Circuit provides a method for placing  ;;
+                                ;; characters and graphics on the screen.  It provides a 20x12 matrix of    ;;
+                                ;; background 'cards'.  Each card contains an 8x8 tile of pixels.  It also  ;;
+                                ;; provides 8 movable objects (refered to here as MOBs).                    ;;
+                                ;;                                                                          ;;
+                                ;; MOB controls: (Note: 'mob' is MOB number (0 - 7))                        ;;
+                                ;;  mob + $00   -- X position, and some attribute bits.                     ;;
+                                ;;  mob + $08   -- Y position, and some attribute bits.                     ;;
+                                ;;  mob + $10   -- Character definition, more attribute bits.               ;;
+                                ;;  mob + $18   -- Collision information.                                   ;;
+                                ;;                                                                          ;;
+                                ;; Display Mode controls:                                                   ;;
+                                ;;  $20         -- Display enable (must be written during vert blank.)      ;;
+                                ;;  $21         -- Graphics mode (write sets FGBG, read sets Color Stack)   ;;
+                                ;;                                                                          ;;
+                                ;; Color Stack and Border Color controls:                                   ;;
+                                ;;  $28..$2B    -- Color stack entries 0..3                                 ;;
+                                ;;  $2C         -- Screen border color                                      ;;
+                                ;;                                                                          ;;
+                                ;; Display framing controls:                                                ;;
+                                ;;  $30         -- Pixel column delay (0..7)                                ;;
+                                ;;  $31         -- Pixel row delay (0..7)                                   ;;
+                                ;;  $32         -- Edge masking (bit 0 masks left, bit 1 masks top)         ;;
+                                ;;                                                                          ;;
+                                ;; Color Set                                                                ;;
+                                ;;       Primary Color Set                Pastel Color Set                  ;;
+                                ;;    ------------------------       -----------------------------          ;;
+                                ;;     0 Black   4 Dark Green          8 Grey     12 Pink                   ;;
+                                ;;     1 Blue    5 Green               9 Cyan     13 Light Blue             ;;
+                                ;;     2 Red     6 Yellow             10 Orange   14 Yellow-Green           ;;
+                                ;;     3 Tan     7 White              11 Brown    15 Purple                 ;;
+                                ;;                                                                          ;;
+                                ;;==========================================================================;;
+0x0                             STIC            STRUCT  $0000
+
+                                ;;--------------------------------------------------------------------------;;
+                                ;; MOB Controls                                                             ;;
+                                ;;                                                                          ;;
+                                ;; X Register layout:                                                       ;;
+                                ;;                                                                          ;;
+                                ;;    13   12   11   10    9    8    7    6    5    4    3    2    1    0   ;;
+                                ;;  +----+----+----+----+----+----+----+----+----+----+----+----+----+----+ ;;
+                                ;;  | ?? | ?? | ?? | X  |VISB|INTR|            X Coordinate               | ;;
+                                ;;  |    |    |    |SIZE|    |    |             (0 to 255)                | ;;
+                                ;;  +----+----+----+----+----+----+----+----+----+----+----+----+----+----+ ;;
+                                ;;                                                                          ;;
+                                ;; Y Register layout:                                                       ;;
+                                ;;                                                                          ;;
+                                ;;    13   12   11   10    9    8    7    6    5    4    3    2    1    0   ;;
+                                ;;  +----+----+----+----+----+----+----+----+----+----+----+----+----+----+ ;;
+                                ;;  | ?? | ?? | Y  | X  | Y  | Y  |YRES|          Y Coordinate            | ;;
+                                ;;  |    |    |FLIP|FLIP|SIZ4|SIZ2|    |           (0 to 127)             | ;;
+                                ;;  +----+----+----+----+----+----+----+----+----+----+----+----+----+----+ ;;
+                                ;;                                                                          ;;
+                                ;; A Register layout:                                                       ;;
+                                ;;                                                                          ;;
+                                ;;    13   12   11   10    9    8    7    6    5    4    3    2    1    0   ;;
+                                ;;  +----+----+----+----+----+----+----+----+----+----+----+----+----+----+ ;;
+                                ;;  |PRIO| FG |GRAM|      GRAM/GROM Card # (0 to 255)      |   FG Color   | ;;
+                                ;;  |    |bit3|GROM|     (bits 9, 10 ignored for GRAM)     |   Bits 0-2   | ;;
+                                ;;  +----+----+----+----+----+----+----+----+----+----+----+----+----+----+ ;;
+                                ;;                                                                          ;;
+                                ;; C Register layout:                                                       ;;
+                                ;;                                                                          ;;
+                                ;;    13   12   11   10    9    8    7    6    5    4    3    2    1    0   ;;
+                                ;;  +----+----+----+----+----+----+----+----+----+----+----+----+----+----+ ;;
+                                ;;  | ?? | ?? | ?? | ?? |COLL|COLL|COLL|COLL|COLL|COLL|COLL|COLL|COLL|COLL| ;;
+                                ;;  |    |    |    |    |BORD| BG |MOB7|MOB6|MOB5|MOB4|MOB3|MOB2|MOB1|MOB0| ;;
+                                ;;  +----+----+----+----+----+----+----+----+----+----+----+----+----+----+ ;;
+                                ;;--------------------------------------------------------------------------;;
+
+0x0                             @@mob0_x        QEQU    $00 + 0     ; MOB 0 X position, XSIZE/VIS attributes
+0x1                             @@mob1_x        QEQU    $00 + 1     ; MOB 1 X position, XSIZE/VIS attributes
+0x2                             @@mob2_x        QEQU    $00 + 2     ; MOB 2 X position, XSIZE/VIS attributes
+0x3                             @@mob3_x        QEQU    $00 + 3     ; MOB 3 X position, XSIZE/VIS attributes
+0x4                             @@mob4_x        QEQU    $00 + 4     ; MOB 4 X position, XSIZE/VIS attributes
+0x5                             @@mob5_x        QEQU    $00 + 5     ; MOB 5 X position, XSIZE/VIS attributes
+0x6                             @@mob6_x        QEQU    $00 + 6     ; MOB 6 X position, XSIZE/VIS attributes
+0x7                             @@mob7_x        QEQU    $00 + 7     ; MOB 7 X position, XSIZE/VIS attributes
+
+0x8                             @@mob0_y        QEQU    $08 + 0     ; MOB 0 Y pos'n, YRES/YSIZE/XFLIP/YFLIP
+0x9                             @@mob1_y        QEQU    $08 + 1     ; MOB 1 Y pos'n, YRES/YSIZE/XFLIP/YFLIP
+0xA                             @@mob2_y        QEQU    $08 + 2     ; MOB 2 Y pos'n, YRES/YSIZE/XFLIP/YFLIP
+0xB                             @@mob3_y        QEQU    $08 + 3     ; MOB 3 Y pos'n, YRES/YSIZE/XFLIP/YFLIP
+0xC                             @@mob4_y        QEQU    $08 + 4     ; MOB 4 Y pos'n, YRES/YSIZE/XFLIP/YFLIP
+0xD                             @@mob5_y        QEQU    $08 + 5     ; MOB 5 Y pos'n, YRES/YSIZE/XFLIP/YFLIP
+0xE                             @@mob6_y        QEQU    $08 + 6     ; MOB 6 Y pos'n, YRES/YSIZE/XFLIP/YFLIP
+0xF                             @@mob7_y        QEQU    $08 + 7     ; MOB 7 Y pos'n, YRES/YSIZE/XFLIP/YFLIP
+
+0x10                            @@mob0_a        QEQU    $10 + 0     ; MOB 0 Color, Card #, Priority
+0x11                            @@mob1_a        QEQU    $10 + 1     ; MOB 1 Color, Card #, Priority
+0x12                            @@mob2_a        QEQU    $10 + 2     ; MOB 2 Color, Card #, Priority
+0x13                            @@mob3_a        QEQU    $10 + 3     ; MOB 3 Color, Card #, Priority
+0x14                            @@mob4_a        QEQU    $10 + 4     ; MOB 4 Color, Card #, Priority
+0x15                            @@mob5_a        QEQU    $10 + 5     ; MOB 5 Color, Card #, Priority
+0x16                            @@mob6_a        QEQU    $10 + 6     ; MOB 6 Color, Card #, Priority
+0x17                            @@mob7_a        QEQU    $10 + 7     ; MOB 7 Color, Card #, Priority
+
+0x18                            @@mob0_c        QEQU    $18 + 0     ; MOB 0 Collision detect
+0x19                            @@mob1_c        QEQU    $18 + 1     ; MOB 1 Collision detect
+0x1A                            @@mob2_c        QEQU    $18 + 2     ; MOB 2 Collision detect
+0x1B                            @@mob3_c        QEQU    $18 + 3     ; MOB 3 Collision detect
+0x1C                            @@mob4_c        QEQU    $18 + 4     ; MOB 4 Collision detect
+0x1D                            @@mob5_c        QEQU    $18 + 5     ; MOB 5 Collision detect
+0x1E                            @@mob6_c        QEQU    $18 + 6     ; MOB 6 Collision detect
+0x1F                            @@mob7_c        QEQU    $18 + 7     ; MOB 7 Collision detect
+
+                                                ;;----------------------------------------------------------;;
+                                                ;; Display Mode Controls                                    ;;
+                                                ;;----------------------------------------------------------;;
+0x20                            @@viden         QEQU    $20         ; Display Enable (write during vblank)
+0x21                            @@mode          QEQU    $21         ; Mode select 
+
+                                                ;;----------------------------------------------------------;;
+                                                ;; Color Stack and Display Border Color Controls            ;;
+                                                ;;----------------------------------------------------------;;
+0x28                            @@colstack      QEQU    $28         ; Base of the color stack
+0x28                            @@cs0           QEQU    $28 + 0     ; Color Stack 0
+0x29                            @@cs1           QEQU    $28 + 1     ; Color Stack 1
+0x2A                            @@cs2           QEQU    $28 + 2     ; Color Stack 2
+0x2B                            @@cs3           QEQU    $28 + 3     ; Color Stack 3
+0x2C                            @@bord          QEQU    $2C         ; Border color
+
+                                                ;;----------------------------------------------------------;;
+                                                ;; Display Framing Controls                                 ;;
+                                                ;;----------------------------------------------------------;;
+0x30                            @@h_delay       QEQU    $30         ; Horizontal delay (0 - 7 pixels)
+0x31                            @@v_delay       QEQU    $31         ; Vertical delay (0 - 7 pixels)
+0x32                            @@edgemask      QEQU    $32         ; Edge masking
+
+                                                ;;----------------------------------------------------------;;
+                                                ;; Useful bitfields/constants/masks for MOBS                ;;
+                                                ;;----------------------------------------------------------;;
+0xFF                            @@mobx_xpos     QEQU    00000011111111b     ; MOB XREG: X position
+0x100                           @@mobx_intr     QEQU    00000100000000b     ; MOB XREG: Interaction
+0x200                           @@mobx_visb     QEQU    00001000000000b     ; MOB XREG: Visibility
+0x400                           @@mobx_xsize    QEQU    00010000000000b     ; MOB XREG: Horiz 2x magnification
+
+0x7F                            @@moby_ypos     QEQU    00000001111111b     ; MOB YREG: Y position
+0x80                            @@moby_yres     QEQU    00000010000000b     ; MOB YREG: Y res. (8 or 16 rows)
+0x100                           @@moby_ysize2   QEQU    00000100000000b     ; MOB YREG: Vert 2x magnification
+0x200                           @@moby_ysize4   QEQU    00001000000000b     ; MOB YREG: Vert 4x magnification
+0x300                           @@moby_ysize8   QEQU    00001100000000b     ; MOB YREG: 8x mag (sets 4x & 2x)
+0x400                           @@moby_xflip    QEQU    00010000000000b     ; MOB YREG: Flip horizontally
+0x800                           @@moby_yflip    QEQU    00100000000000b     ; MOB YREG: Flip vertically
+
+0x0                             @@moba_fg0      QEQU    00000000000000b     ; MOB AREG: Foreground color =  0
+0x1                             @@moba_fg1      QEQU    00000000000001b     ; MOB AREG: Foreground color =  1
+0x2                             @@moba_fg2      QEQU    00000000000010b     ; MOB AREG: Foreground color =  2
+0x3                             @@moba_fg3      QEQU    00000000000011b     ; MOB AREG: Foreground color =  3
+0x4                             @@moba_fg4      QEQU    00000000000100b     ; MOB AREG: Foreground color =  4
+0x5                             @@moba_fg5      QEQU    00000000000101b     ; MOB AREG: Foreground color =  5
+0x6                             @@moba_fg6      QEQU    00000000000110b     ; MOB AREG: Foreground color =  6
+0x7                             @@moba_fg7      QEQU    00000000000111b     ; MOB AREG: Foreground color =  7
+0x1000                          @@moba_fg8      QEQU    01000000000000b     ; MOB AREG: Foreground color =  8
+0x1001                          @@moba_fg9      QEQU    01000000000001b     ; MOB AREG: Foreground color =  9
+0x1002                          @@moba_fgA      QEQU    01000000000010b     ; MOB AREG: Foreground color = 10
+0x1003                          @@moba_fgB      QEQU    01000000000011b     ; MOB AREG: Foreground color = 11
+0x1004                          @@moba_fgC      QEQU    01000000000100b     ; MOB AREG: Foreground color = 12
+0x1005                          @@moba_fgD      QEQU    01000000000101b     ; MOB AREG: Foreground color = 13
+0x1006                          @@moba_fgE      QEQU    01000000000110b     ; MOB AREG: Foreground color = 14
+0x1007                          @@moba_fgF      QEQU    01000000000111b     ; MOB AREG: Foreground color = 15
+0x1F8                           @@moba_card     QEQU    00000111111000b     ; MOB AREG: Card # mask
+0x800                           @@moba_gram     QEQU    00100000000000b     ; MOB AREG: GRAM card select
+0x2000                          @@moba_prio     QEQU    10000000000000b     ; MOB AREG: Priority 
+                                                                            ;           (above/below bkgnd)
+
+0x1                             @@mobc_coll0    QEQU    00000000000001b     ; MOB CREG: Collision w/ MOB #0
+0x2                             @@mobc_coll1    QEQU    00000000000010b     ; MOB CREG: Collision w/ MOB #1
+0x4                             @@mobc_coll2    QEQU    00000000000100b     ; MOB CREG: Collision w/ MOB #2
+0x8                             @@mobc_coll3    QEQU    00000000001000b     ; MOB CREG: Collision w/ MOB #3
+0x10                            @@mobc_coll4    QEQU    00000000010000b     ; MOB CREG: Collision w/ MOB #4
+0x20                            @@mobc_coll5    QEQU    00000000100000b     ; MOB CREG: Collision w/ MOB #5
+0x40                            @@mobc_coll6    QEQU    00000001000000b     ; MOB CREG: Collision w/ MOB #6
+0x80                            @@mobc_coll7    QEQU    00000010000000b     ; MOB CREG: Collision w/ MOB #7
+0xFF                            @@mobc_collmob  QEQU    00000011111111b     ; MOB CREG: Coll w/ any MOB (mask)
+0x100                           @@mobc_collbg   QEQU    00000100000000b     ; MOB CREG; Coll w/ background
+0x200                           @@mobc_collbord QEQU    00001000000000b     ; MOB CREG; Coll w/ background
+
+                                                ;;----------------------------------------------------------;;
+                                                ;; Useful bits for Edge Masking.                            ;;
+                                                ;;----------------------------------------------------------;;
+0x1                             @@mask_left     QEQU    00000000000001b     ; Edge mask: Mask leftmost 8 pixels
+0x2                             @@mask_top      QEQU    00000000000010b     ; Edge mask: Mask topmost 8 pixels
+
+                                ;;--------------------------------------------------------------------------;;
+                                ;; Useful bits for Color Stack Mode                                         ;;
+                                ;;                                                                          ;;
+                                ;; Display format word layout in Color Stack Mode:                          ;;
+                                ;;   13   12    11   10    9    8    7    6    5    4    3    2    1    0   ;;
+                                ;; +----+-----+----+----+----+----+----+----+----+----+----+----+----+----+ ;;
+                                ;; |Adv.|FG   |GRAM|           GRAM/GROM Card #            |   FG Color   | ;;
+                                ;; |col |Bit3/|GROM|    (0-255 for GROM, 0-63 for GRAM)    |   Bits 0-2   | ;;
+                                ;; |stck|----------|                                       |              | ;;
+                                ;; |    |col. sqr. |                                       |              | ;;
+                                ;; |    |mode slct.|                                       |              | ;;
+                                ;; +----+-----+----+----+----+----+----+----+----+----+----+----+----+----+ ;;
+                                ;;                                                                          ;;
+                                ;; Color Stack Notes:                                                       ;;
+                                ;;  -- If GRAM card, two MSBs of Card # are ignored, and may be used by     ;;
+                                ;;     the program to store other information.                              ;;
+                                ;;                                                                          ;;
+                                ;;  -- Bit 12 is set and Bit 11 is cleared, this word is treated as a       ;;
+                                ;;     colored-square-mode display word, in the format below.               ;;
+                                ;;                                                                          ;;
+                                ;;  -- The color stack is reset to offset 0 at the start of the display.    ;;
+                                ;;     Setting the 'advance' bit advances the color stack by one for that   ;;
+                                ;;     card and all cards after it in normal left-to-right scanning order.  ;;
+                                ;;                                                                          ;;
+                                ;;  -- Bits 14 and 15 of the display format word are ignored and may be     ;;
+                                ;;     used by the program to store status bits, etc.                       ;;
+                                ;;                                                                          ;;
+                                ;; Display format word layout in Colored Squares Mode:                      ;;
+                                ;;                                                                          ;;
+                                ;;   13   12   11   10    9    8    7    6    5    4    3    2    1    0    ;;
+                                ;; +----+----+----+----+----+----+----+----+----+----+----+----+----+----+  ;;
+                                ;; |Pix3|  1 |  0 | Pix. 3  | Pix. 2 color | Pix. 1 color | Pix. 0 color |  ;;
+                                ;; |Bit2|    |    | bit 0-1 |    (0-7)     |    (0-7)     |    (0-7)     |  ;;
+                                ;; +----+----+----+----+----+----+----+----+----+----+----+----+----+----+  ;;
+                                ;;                                                                          ;;
+                                ;; Pixels are display like so:  +-----+-----+                               ;;
+                                ;;                              |Pixel|Pixel|                               ;;
+                                ;;                              |  0  |  1  |                               ;;
+                                ;;                              +-----+-----+                               ;;
+                                ;;                              |Pixel|Pixel|                               ;;
+                                ;;                              |  2  |  3  |                               ;;
+                                ;;                              +-----+-----+                               ;;
+                                ;;                                                                          ;;
+                                ;; Colored Square Mode Notes:                                               ;;
+                                ;;                                                                          ;;
+                                ;;  -- It is not possible to advance the color stack with a card that is    ;;
+                                ;;     displayed in color-stack mode.                                       ;;
+                                ;;                                                                          ;;
+                                ;;  -- Color 7 in colored squares mode instead shows the current color on   ;;
+                                ;;     the color stack.                                                     ;;
+                                ;;                                                                          ;;
+                                ;;  -- Colors 0 through 6 in a colored-square card will interact with       ;;
+                                ;;     MOBs, but color 7 will not.                                          ;;
+                                ;;                                                                          ;;
+                                ;;  -- Bits 14 and 15 of the display format word are ignored and may be     ;;
+                                ;;     used by the program to store status bits, etc.                       ;;
+                                ;;--------------------------------------------------------------------------;;
+0x0                             @@cs_fg0        QEQU    00000000000000b     ; foreground ==  0
+0x1                             @@cs_fg1        QEQU    00000000000001b     ; foreground ==  1
+0x2                             @@cs_fg2        QEQU    00000000000010b     ; foreground ==  2
+0x3                             @@cs_fg3        QEQU    00000000000011b     ; foreground ==  3
+0x4                             @@cs_fg4        QEQU    00000000000100b     ; foreground ==  4
+0x5                             @@cs_fg5        QEQU    00000000000101b     ; foreground ==  5
+0x6                             @@cs_fg6        QEQU    00000000000110b     ; foreground ==  6
+0x7                             @@cs_fg7        QEQU    00000000000111b     ; foreground ==  7
+0x1000                          @@cs_fg8        QEQU    01000000000000b     ; foreground ==  8
+0x1001                          @@cs_fg9        QEQU    01000000000001b     ; foreground ==  9
+0x1002                          @@cs_fgA        QEQU    01000000000010b     ; foreground == 10
+0x1003                          @@cs_fgB        QEQU    01000000000011b     ; foreground == 11
+0x1004                          @@cs_fgC        QEQU    01000000000100b     ; foreground == 12
+0x1005                          @@cs_fgD        QEQU    01000000000101b     ; foreground == 13
+0x1006                          @@cs_fgE        QEQU    01000000000110b     ; foreground == 14
+0x1007                          @@cs_fgF        QEQU    01000000000111b     ; foreground == 15
+0x7F8                           @@cs_card       QEQU    00011111111000b     ; Card # mask (GRAM/GROM index #)
+0x800                           @@cs_gram       QEQU    00100000000000b     ; Selects cards from GRAM if set
+0x2000                          @@cs_advance    QEQU    10000000000000b     ; Advances color stack.
+0x1000                          @@cs_colsqr     QEQU    01000000000000b     ; Selects 'colored square mode'
+
+0x7                             @@cs_pix0       QEQU    00000000000111b     ; ColSqr Pixel 0 mask
+0x38                            @@cs_pix1       QEQU    00000000111000b     ; ColSqr Pixel 1 mask
+0x1C0                           @@cs_pix2       QEQU    00000111000000b     ; ColSqr Pixel 2 mask
+0x2600                          @@cs_pix3       QEQU    10011000000000b     ; ColSqr Pixel 3 mask
+
+0x0                             @@cs_pix0_0     QEQU    00000000000000b     ; ColSqr Pixel 0, color == 0
+0x1                             @@cs_pix0_1     QEQU    00000000000001b     ; ColSqr Pixel 0, color == 1
+0x2                             @@cs_pix0_2     QEQU    00000000000010b     ; ColSqr Pixel 0, color == 2
+0x3                             @@cs_pix0_3     QEQU    00000000000011b     ; ColSqr Pixel 0, color == 3
+0x4                             @@cs_pix0_4     QEQU    00000000000100b     ; ColSqr Pixel 0, color == 4
+0x5                             @@cs_pix0_5     QEQU    00000000000101b     ; ColSqr Pixel 0, color == 5
+0x6                             @@cs_pix0_6     QEQU    00000000000110b     ; ColSqr Pixel 0, color == 6
+0x7                             @@cs_pix0_7     QEQU    00000000000111b     ; ColSqr Pixel 0, color == 7
+
+0x0                             @@cs_pix1_0     QEQU    00000000000000b     ; ColSqr Pixel 1, color == 0
+0x8                             @@cs_pix1_1     QEQU    00000000001000b     ; ColSqr Pixel 1, color == 1
+0x10                            @@cs_pix1_2     QEQU    00000000010000b     ; ColSqr Pixel 1, color == 2
+0x18                            @@cs_pix1_3     QEQU    00000000011000b     ; ColSqr Pixel 1, color == 3
+0x20                            @@cs_pix1_4     QEQU    00000000100000b     ; ColSqr Pixel 1, color == 4
+0x28                            @@cs_pix1_5     QEQU    00000000101000b     ; ColSqr Pixel 1, color == 5
+0x30                            @@cs_pix1_6     QEQU    00000000110000b     ; ColSqr Pixel 1, color == 6
+0x38                            @@cs_pix1_7     QEQU    00000000111000b     ; ColSqr Pixel 1, color == 7
+
+0x0                             @@cs_pix2_0     QEQU    00000000000000b     ; ColSqr Pixel 2, color == 0
+0x40                            @@cs_pix2_1     QEQU    00000001000000b     ; ColSqr Pixel 2, color == 1
+0x80                            @@cs_pix2_2     QEQU    00000010000000b     ; ColSqr Pixel 2, color == 2
+0xC0                            @@cs_pix2_3     QEQU    00000011000000b     ; ColSqr Pixel 2, color == 3
+0x100                           @@cs_pix2_4     QEQU    00000100000000b     ; ColSqr Pixel 2, color == 4
+0x140                           @@cs_pix2_5     QEQU    00000101000000b     ; ColSqr Pixel 2, color == 5
+0x180                           @@cs_pix2_6     QEQU    00000110000000b     ; ColSqr Pixel 2, color == 6
+0x1C0                           @@cs_pix2_7     QEQU    00000111000000b     ; ColSqr Pixel 2, color == 7
+
+0x0                             @@cs_pix3_0     QEQU    00000000000000b     ; ColSqr Pixel 3, color == 0
+0x200                           @@cs_pix3_1     QEQU    00001000000000b     ; ColSqr Pixel 3, color == 1
+0x400                           @@cs_pix3_2     QEQU    00010000000000b     ; ColSqr Pixel 3, color == 2
+0x600                           @@cs_pix3_3     QEQU    00011000000000b     ; ColSqr Pixel 3, color == 3
+0x2000                          @@cs_pix3_4     QEQU    10000000000000b     ; ColSqr Pixel 3, color == 4
+0x2200                          @@cs_pix3_5     QEQU    10001000000000b     ; ColSqr Pixel 3, color == 5
+0x2400                          @@cs_pix3_6     QEQU    10010000000000b     ; ColSqr Pixel 3, color == 6
+0x2600                          @@cs_pix3_7     QEQU    10011000000000b     ; ColSqr Pixel 3, color == 7
+
+                                ;;--------------------------------------------------------------------------;;
+                                ;; Useful bits for Foreground/Background Mode                               ;;
+                                ;;                                                                          ;;
+                                ;; Display format word layout in Color Stack Mode:                          ;;
+                                ;;   13   12   11   10    9    8    7    6    5    4    3    2    1    0    ;;
+                                ;; +----+----+----+----+----+----+----+----+----+----+----+----+----+----+  ;;
+                                ;; |BG  |BG  |GRAM|BG  |BG  |      GRAM/GROM Card #       |   FG Color   |  ;;
+                                ;; |Bit2|Bit3|GROM|Bit1|Bit0|          (0 - 63)           |   Bits 0-2   |  ;;
+                                ;; +----+----+----+----+----+----+----+----+----+----+----+----+----+----+  ;;
+                                ;;--------------------------------------------------------------------------;;
+
+0x0                             @@fb_fg0        QEQU    00000000000000b     ; foreground ==  0
+0x1                             @@fb_fg1        QEQU    00000000000001b     ; foreground ==  1
+0x2                             @@fb_fg2        QEQU    00000000000010b     ; foreground ==  2
+0x3                             @@fb_fg3        QEQU    00000000000011b     ; foreground ==  3
+0x4                             @@fb_fg4        QEQU    00000000000100b     ; foreground ==  4
+0x5                             @@fb_fg5        QEQU    00000000000101b     ; foreground ==  5
+0x6                             @@fb_fg6        QEQU    00000000000110b     ; foreground ==  6
+0x7                             @@fb_fg7        QEQU    00000000000111b     ; foreground ==  7
+
+0x0                             @@fb_bg0        QEQU    00000000000000b     ; background ==  0
+0x200                           @@fb_bg1        QEQU    00001000000000b     ; background ==  1
+0x400                           @@fb_bg2        QEQU    00010000000000b     ; background ==  2
+0x600                           @@fb_bg3        QEQU    00011000000000b     ; background ==  3
+0x2000                          @@fb_bg4        QEQU    10000000000000b     ; background ==  4
+0x2200                          @@fb_bg5        QEQU    10001000000000b     ; background ==  5
+0x2400                          @@fb_bg6        QEQU    10010000000000b     ; background ==  6
+0x2600                          @@fb_bg7        QEQU    10011000000000b     ; background ==  7
+0x1000                          @@fb_bg8        QEQU    01000000000000b     ; background ==  8
+0x1200                          @@fb_bg9        QEQU    01001000000000b     ; background ==  9
+0x1400                          @@fb_bgA        QEQU    01010000000000b     ; background == 10
+0x1600                          @@fb_bgB        QEQU    01011000000000b     ; background == 11
+0x3000                          @@fb_bgC        QEQU    11000000000000b     ; background == 12
+0x3200                          @@fb_bgD        QEQU    11001000000000b     ; background == 13
+0x3400                          @@fb_bgE        QEQU    11010000000000b     ; background == 14
+0x3600                          @@fb_bgF        QEQU    11011000000000b     ; background == 15
+
+0x1F8                           @@fb_card       QEQU    00000111111000b     ; Card # mask (GRAM/GROM index #)
+0x800                           @@fb_gram       QEQU    00100000000000b     ; Selects cards from GRAM if set
+
+                                                ENDS
+
+                                ;;==========================================================================;;
+                                ;;  STIC COLOR-NAMES                                                        ;;
+                                ;;                                                                          ;;
+                                ;;  These are easier to remember short mnemonics for the STIC's colors.     ;;
+                                ;;  You can use the C_xxx colors for color-stack registers, border colors   ;;
+                                ;;  and so on where the color is stored in a contiguous field.  Use the     ;;
+                                ;;  X_xxx color names for the foreground color on display cards in color-   ;;
+                                ;;  stack mode, or for MOB attribute words.                                 ;;
+                                ;;                                                                          ;;
+                                ;;  Note that for the primary color set, C_xxx and X_xxx are identical.     ;;
+                                ;;==========================================================================;;
+
+0x0                             C_BLK   QEQU    $0              ; Black
+0x1                             C_BLU   QEQU    $1              ; Blue
+0x2                             C_RED   QEQU    $2              ; Red
+0x3                             C_TAN   QEQU    $3              ; Tan
+0x4                             C_DGR   QEQU    $4              ; Dark Green
+0x5                             C_GRN   QEQU    $5              ; Green
+0x6                             C_YEL   QEQU    $6              ; Yellow
+0x7                             C_WHT   QEQU    $7              ; White
+0x8                             C_GRY   QEQU    $8              ; Grey
+0x9                             C_CYN   QEQU    $9              ; Cyan
+0xA                             C_ORG   QEQU    $A              ; Orange
+0xB                             C_BRN   QEQU    $B              ; Brown
+0xC                             C_PNK   QEQU    $C              ; Pink
+0xD                             C_LBL   QEQU    $D              ; Light Blue
+0xE                             C_YGR   QEQU    $E              ; Yellow-Green
+0xF                             C_PUR   QEQU    $F              ; Purple
+
+0x0                             X_BLK   QEQU    $0              ; Black
+0x1                             X_BLU   QEQU    $1              ; Blue
+0x2                             X_RED   QEQU    $2              ; Red
+0x3                             X_TAN   QEQU    $3              ; Tan
+0x4                             X_DGR   QEQU    $4              ; Dark Green
+0x5                             X_GRN   QEQU    $5              ; Green
+0x6                             X_YEL   QEQU    $6              ; Yellow
+0x7                             X_WHT   QEQU    $7              ; White
+0x1000                          X_GRY   QEQU    $1000           ; Grey
+0x1001                          X_CYN   QEQU    $1001           ; Cyan
+0x1002                          X_ORG   QEQU    $1002           ; Orange
+0x1003                          X_BRN   QEQU    $1003           ; Brown
+0x1004                          X_PNK   QEQU    $1004           ; Pink
+0x1005                          X_LBL   QEQU    $1005           ; Light Blue
+0x1006                          X_YGR   QEQU    $1006           ; Yellow-Green
+0x1007                          X_PUR   QEQU    $1007           ; Purple
+
+                                ;; ======================================================================== ;;
+                                ;;  End of File:  gimini.asm                                                ;;
+                                ;; ======================================================================== ;;
+
+0x100                           SCRATCH ORG     $100, $100, "-RWBN"
+0x100                           ISRVEC  RMB     2
+0x102                           INPUT   RMB     1
+0x103                           FRAME   RMB     1
+0x104                           HITS    RMB     1
+0x105                           STATE   RMB     1
+0x106                           SFX     RMB     1
+0x2F0                           SYSTEM  ORG     $2F0, $2F0, "-RWBN"
+0x2F0                           STACK   RMB     32
+0x310                           PLAYER_X RMB    1
+0x311                           PLAYER_Y RMB    1
+0x312                           ENEMY_X  RMB    1
+0x313                           ENEMY_Y  RMB    1
+0x314                           PLAYER_A RMB    1
+0x315                           ENEMY_A  RMB    1
+
+0x0                             STATE_PLAY EQU 0
+0x1                             STATE_OVER EQU 1
+
+0x5000                                  ORG     $5000
+5000   000D 0050                ROMHDR: BIDECLE ZERO
+5002   000D 0050                        BIDECLE ZERO
+5004   0028 0050                        BIDECLE MAIN
+5006   000D 0050                        BIDECLE ZERO
+5008   0014 0050                        BIDECLE ONES
+500A   0015 0050                        BIDECLE TITLE
+500C   03C0                             DECLE   $03C0
+500D   0000 0000                ZERO:   DECLE   0, 0
+500F   0001 0001 0001 0001              DECLE   C_BLU, C_BLU, C_BLU, C_BLU, C_BLU
+5013   0001 
+5014   0001                     ONES:   DECLE   1
+0x5015                          TITLE:  PROC
+5015   0066 004C 0065 0061              BYTE    102, "Learning Game 5", 0
+5019   0072 006E 0069 006E 0067 0020 0047 0061 
+5021   006D 0065 0020 0035 0000 
+5026   0275                             BEGIN
+5027   02B7                             RETURN
+                                        ENDP
+
+0x5028                          MAIN:   PROC
+5028   0003                             DIS
+5029   02BE 02F0                        MVII    #STACK, R6
+502B   02B8 50B9                        MVII    #VBLANK_ISR, R0
+502D   0240 0100                        MVO     R0, ISRVEC
+502F   0040                             SWAP    R0
+5030   0240 0101                        MVO     R0, ISRVEC+1
+5032   0004 0150 0051                   CALL    RESET_GAME
+5035   0002                             EIS
+0x5036                          @@loop:
+5036   0004 0150 0073                   CALL    READ_INPUT
+5039   0280 0105                        MVI     STATE, R0
+503B   0080                             TSTR    R0
+503C   020C 0008                        BNEQ    @@over
+503E   0004 0150 007C                   CALL    UPDATE_PLAY
+5041   0004 0150 00A5                   CALL    UPDATE_SOUND
+5044   0220 000F                        B       @@loop
+0x5046                          @@over:
+5046   0280 0102                        MVI     INPUT, R0
+5048   03B8 0001                        ANDI    #$0001, R0
+504A   0224 0015                        BEQ     @@loop
+504C   0004 0150 0051                   CALL    RESET_GAME
+504F   0220 001A                        B       @@loop
+                                        ENDP
+
+0x5051                          RESET_GAME PROC
+5051   02B8 0000                        MVII    #STATE_PLAY, R0
+5053   0240 0105                        MVO     R0, STATE
+5055   01C0                             CLRR    R0
+5056   0240 0103                        MVO     R0, FRAME
+5058   0240 0104                        MVO     R0, HITS
+505A   0240 0106                        MVO     R0, SFX
+505C   02B8 033C                        MVII    #STIC.mobx_visb + STIC.mobx_intr + 60, R0
+505E   0240 0310                        MVO     R0, PLAYER_X
+5060   02B8 036E                        MVII    #STIC.mobx_visb + STIC.mobx_intr + 110, R0
+5062   0240 0312                        MVO     R0, ENEMY_X
+5064   02B8 0132                        MVII    #STIC.moby_ysize2 + 50, R0
+5066   0240 0311                        MVO     R0, PLAYER_Y
+5068   0240 0313                        MVO     R0, ENEMY_Y
+506A   02B8 0802                        MVII    #STIC.moba_gram + STIC.moba_fg2, R0
+506C   0240 0314                        MVO     R0, PLAYER_A
+506E   02B8 0801                        MVII    #STIC.moba_gram + STIC.moba_fg1, R0
+5070   0240 0315                        MVO     R0, ENEMY_A
+5072   00AF                             JR      R5
+                                        ENDP
+
+0x5073                          READ_INPUT PROC
+5073   0280 01FF                        MVI     $01FF, R0
+5075   03F8 00FF                        XORI    #$00FF, R0
+5077   03B8 00FF                        ANDI    #$00FF, R0
+5079   0240 0102                        MVO     R0, INPUT
+507B   00AF                             JR      R5
+                                        ENDP
+
+0x507C                          UPDATE_PLAY PROC
+507C   0280 0102                        MVI     INPUT, R0
+507E   03B8 000F                        ANDI    #$000F, R0
+5080   0204 0005                        BEQ     @@enemy
+5082   0281 0310                        MVI     PLAYER_X, R1
+5084   0009                             INCR    R1
+5085   0241 0310                        MVO     R1, PLAYER_X
+0x5087                          @@enemy:
+5087   0280 0103                        MVI     FRAME, R0
+5089   03B8 0003                        ANDI    #3, R0
+508B   020C 000B                        BNEQ    @@hit
+508D   0281 0312                        MVI     ENEMY_X, R1
+508F   0009                             INCR    R1
+5090   0379 0090                        CMPI    #$0090, R1
+5092   0209 0002                        BNC     @@save
+5094   02B9 0040                        MVII    #$0040, R1
+5096   0241 0312                @@save: MVO     R1, ENEMY_X
+0x5098                          @@hit:
+5098   0280 0104                        MVI     HITS, R0
+509A   0204 0008                        BEQ     @@done
+509C   02B8 0001                        MVII    #STATE_OVER, R0
+509E   0240 0105                        MVO     R0, STATE
+50A0   02B8 0001                        MVII    #1, R0
+50A2   0240 0106                        MVO     R0, SFX
+0x50A4                          @@done:
+50A4   00AF                             JR      R5
+                                        ENDP
+
+0x50A5                          UPDATE_SOUND PROC
+50A5   0280 0106                        MVI     SFX, R0
+50A7   0204 000F                        BEQ     @@done
+50A9   01C0                             CLRR    R0
+50AA   0240 0106                        MVO     R0, SFX
+50AC   02B8 0040                        MVII    #$40, R0
+50AE   0240 01F8                        MVO     R0, PSG0.chan_enable
+50B0   02B8 0080                        MVII    #$80, R0
+50B2   0240 01F0                        MVO     R0, PSG0.chn_a_lo
+50B4   02B8 000F                        MVII    #$0F, R0
+50B6   0240 01FB                        MVO     R0, PSG0.chn_a_vol
+50B8   00AF                     @@done: JR      R5
+                                        ENDP
+
+0x50B9                          VBLANK_ISR PROC
+50B9   0240 0020                        MVO     R0, $0020
+50BB   0280 0310                        MVI     PLAYER_X, R0
+50BD   0240 0000                        MVO     R0, STIC.mob0_x
+50BF   0280 0312                        MVI     ENEMY_X, R0
+50C1   0240 0001                        MVO     R0, STIC.mob1_x
+50C3   0280 0311                        MVI     PLAYER_Y, R0
+50C5   0240 0008                        MVO     R0, STIC.mob0_y
+50C7   0280 0313                        MVI     ENEMY_Y, R0
+50C9   0240 0009                        MVO     R0, STIC.mob1_y
+50CB   0280 0314                        MVI     PLAYER_A, R0
+50CD   0240 0010                        MVO     R0, STIC.mob0_a
+50CF   0280 0315                        MVI     ENEMY_A, R0
+50D1   0240 0011                        MVO     R0, STIC.mob1_a
+50D3   0280 0018                        MVI     STIC.mob0_c, R0
+50D5   0240 0104                        MVO     R0, HITS
+50D7   0280 0103                        MVI     FRAME, R0
+50D9   0008                             INCR    R0
+50DA   0240 0103                        MVO     R0, FRAME
+50DC   00AF                             JR      R5
+                                        ENDP
+
+0x50DD                          PLAYER_GFX:
+50DD   003C 007E 00FF 00DB              DECLE   %00111100, %01111110, %11111111, %11011011
+50E1   00FF 0066 0024 0000              DECLE   %11111111, %01100110, %00100100, %00000000
+                                        INCLUDE "../../library/memcpy.asm"
+                                ;* ======================================================================== *;
+                                ;*  The routines and data in this file (memcpy.asm) are dedicated to the    *;
+                                ;*  public domain via the Creative Commons CC0 v1.0 license by its author,  *;
+                                ;*  Joseph Zbiciak.                                                         *;
+                                ;*                                                                          *;
+                                ;*          https://creativecommons.org/publicdomain/zero/1.0/              *;
+                                ;* ======================================================================== *;
+
+                                ;; ======================================================================== ;;
+                                ;;  MEMCPY    Copy one array to another                                     ;;
+                                ;;  MEMCPY.1  Alternate entry point                                         ;;
+                                ;;                                                                          ;;
+                                ;;  AUTHOR                                                                  ;;
+                                ;;      Joseph Zbiciak <intvnut AT gmail.com>                               ;;
+                                ;;                                                                          ;;
+                                ;;  REVISION HISTORY                                                        ;;
+                                ;;      08-Sep-2001 Initial Revision                                        ;;
+                                ;;                                                                          ;;
+                                ;;  INPUTS for MEMCPY                                                       ;;
+                                ;;      R5    Pointer to invocation record, followed by return address.     ;;
+                                ;;            Pointer to destination       1 DECLE                          ;;
+                                ;;            Pointer to source            1 DECLE                          ;;
+                                ;;            Length                       1 DECLE                          ;;
+                                ;;                                                                          ;;
+                                ;;  INPUTS for MEMCPY.1                                                     ;;
+                                ;;      R5    Return address                                                ;;
+                                ;;      R4    Pointer to destination                                        ;;
+                                ;;      R1    Pointer to source                                             ;;
+                                ;;      R0    Length                                                        ;;
+                                ;;                                                                          ;;
+                                ;;  OUTPUTS                                                                 ;;
+                                ;;      R0    $FFFF                                                         ;;
+                                ;;      R1    Last element copied                                           ;;
+                                ;;      R4    Points one element beyond destination array                   ;;
+                                ;;      R5    Points one element beyond source array                        ;;
+                                ;;                                                                          ;;
+                                ;;  TECHNIQUES                                                              ;;
+                                ;;      Unrolled 8x for speed.                                              ;;
+                                ;;      Special dispatch handles length % 8 != 0.                           ;;
+                                ;;                                                                          ;;
+                                ;;  CODESIZE                                                                ;;
+                                ;;      35 words                                                            ;;
+                                ;;                                                                          ;;
+                                ;;  CYCLES                                                                  ;;
+                                ;;      Not yet characterized.                                              ;;
+                                ;; ======================================================================== ;;
+0x50E5                          MEMCPY      PROC
+
+50E5   02AC                                 MVI@    R5,     R4      ;   8   Destination array
+50E6   02A9                                 MVI@    R5,     R1      ;   8   Source array
+50E7   02A8                                 MVI@    R5,     R0      ;   8   Length
+
+50E8   0275                     @@1:        PSHR    R5              ;   9   Alternate entry point
+
+50E9   008D                                 MOVR    R1,     R5      ;   6   Use auto-incr pointer
+
+50EA   0081                                 MOVR    R0,     R1      ;   6   Copy array length
+50EB   0064                                 SLR     R0,     2       ;   8   \___ Find floor(length / 8)
+50EC   0060                                 SLR     R0,     1       ;   6   /
+50ED   03B9 0007                            ANDI    #7,     R1      ;   8   \
+50EF   00C9                                 ADDR    R1,     R1      ;   6    |__ Find address to jump to for
+50F0   0339 5104                            SUBI    #@@end, R1      ;   8    |   first iteration, to handle
+50F2   0021                                 NEGR    R1              ;   6   /    length % 8.
+50F3   008F                                 MOVR    R1,     PC      ;   6   Jump into copy loop.
+
+
+50F4   02A9                     @@loop:     MVI@    R5,     R1      ;   8   
+50F5   0261                                 MVO@    R1,     R4      ;   9   
+50F6   02A9                                 MVI@    R5,     R1      ;   8   
+50F7   0261                                 MVO@    R1,     R4      ;   9   
+50F8   02A9                                 MVI@    R5,     R1      ;   8   
+50F9   0261                                 MVO@    R1,     R4      ;   9   
+50FA   02A9                                 MVI@    R5,     R1      ;   8   
+50FB   0261                                 MVO@    R1,     R4      ;   9   
+50FC   02A9                                 MVI@    R5,     R1      ;   8   
+50FD   0261                                 MVO@    R1,     R4      ;   9   
+50FE   02A9                                 MVI@    R5,     R1      ;   8   
+50FF   0261                                 MVO@    R1,     R4      ;   9   
+5100   02A9                                 MVI@    R5,     R1      ;   8   
+5101   0261                                 MVO@    R1,     R4      ;   9   
+5102   02A9                                 MVI@    R5,     R1      ;   8   
+5103   0261                                 MVO@    R1,     R4      ;   9   
+                                            
+5104   0010                     @@end:      DECR    R0              ;   6   
+5105   0223 0012                            BPL     @@loop          ;  9/7  Iterate floor(length/8) + 1 times
+                                                                    ;----
+                                                                    ; 151*k - 2
+
+5107   02B7                     @@done:     PULR    PC              ;  11   Return
+                                            ENDP    
+
+
+                                ;; ======================================================================== ;;
+                                ;;  End of File:  memcpy.asm                                                ;;
+                                ;; ======================================================================== ;;
+ ERROR SUMMARY - ERRORS DETECTED 0
+               -  WARNINGS       0
