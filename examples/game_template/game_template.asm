@@ -135,13 +135,13 @@ INIT_GAME PROC
         ENDP
 
 ; -----------------------------------------------------------------------------
-; INIT_BACKGROUND: fill BACKTAB with a blue colored-square test background.
+; INIT_BACKGROUND: fill BACKTAB with blue colored-square test tiles.
 ; Replace this with a map loader or card layout for a real game.
 ; -----------------------------------------------------------------------------
 INIT_BACKGROUND PROC
         MVII    #$0200, R4
         MVII    #$00F0, R1
-        MVII    #$1801, R0          ; colored square: blue foreground
+        MVII    #$1249, R0          ; four blue colored squares
         CALL    FILLMEM
         JR      R5
         ENDP
