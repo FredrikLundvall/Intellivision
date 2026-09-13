@@ -51,7 +51,7 @@ techniques and clearly lists what it still leaves out.
 You need:
 
 * the SDK checkout;
-* `bin/as1600.exe`;
+* `as1600.exe` available on your `PATH`;
 * an Intellivision emulator such as jzIntv;
 * a way to copy the generated `.bin` and `.cfg` files to the emulator's ROM
   directory.
@@ -819,7 +819,7 @@ commercial game.
 Build from its own directory:
 
 ```text
-D:\source\Repos\Intellivision\jzintvSDK\bin\as1600.exe ^
+as1600.exe ^
   -o star_dodger.bin -l star_dodger.lst star_dodger.asm
 ```
 

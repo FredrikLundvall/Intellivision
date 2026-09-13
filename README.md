@@ -9,6 +9,6 @@ budgeting, and production cartridge layout:
 * Sources: `examples/learning_game/`
 * Integrated skeleton: `examples/learning_game/star_dodger/star_dodger.asm`
 
-Build each level from its directory with the SDK `bin/as1600.exe`. Generated
+Build each level from its directory with `as1600.exe`. Generated
 `.bin`, `.cfg`, and `.lst` files are temporary build artifacts and are not
 part of the source tree.
