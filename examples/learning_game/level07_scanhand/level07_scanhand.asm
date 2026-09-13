@@ -49,14 +49,14 @@ MAIN: PROC
         MVO R0,SH_LR1
         MVO R0,SH_LR1+1
         MVO R0,SH_LR1+2
- CALL SCANHAND
- CALL RUNQ
         MVII #VBLANK_ISR,R0
         MVO R0,ISRVEC
         SWAP R0
         MVO R0,ISRVEC+1
         EIS
 @@loop:
+ CALL SCANHAND
+ CALL RUNQ
         B @@loop
         ENDP
 VBLANK_ISR: PROC

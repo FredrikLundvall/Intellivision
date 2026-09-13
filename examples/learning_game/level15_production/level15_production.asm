@@ -34,6 +34,11 @@ MAIN: PROC
  MVO R0,VBLANK_BUDGET
  CLRR R0
  MVO R0,WORK_CURSOR
+        MVII #VBLANK_ISR,R0
+        MVO R0,ISRVEC
+        SWAP R0
+        MVO R0,ISRVEC+1
+        EIS
 @@work: MVI VBLANK_BUDGET,R0
  BEQ @@wait
  DECR R0
@@ -43,11 +48,6 @@ MAIN: PROC
  MVO R0,WORK_CURSOR
  B @@work
 @@wait: B @@wait
-        MVII #VBLANK_ISR,R0
-        MVO R0,ISRVEC
-        SWAP R0
-        MVO R0,ISRVEC+1
-        EIS
 @@loop:
         B @@loop
         ENDP

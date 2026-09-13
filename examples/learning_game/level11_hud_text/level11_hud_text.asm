@@ -33,6 +33,11 @@ MAIN: PROC
  MVO R0,SCORE
  MVII #HUD_TEXT,R0
  MVO R0,HUD_PTR
+               MVII #VBLANK_ISR,R0
+               MVO R0,ISRVEC
+               SWAP R0
+               MVO R0,ISRVEC+1
+               EIS
 @@score: MVI SCORE,R0
  INCR R0
  MVO R0,SCORE
@@ -40,11 +45,6 @@ MAIN: PROC
  ADDI #$0200,R0
  MVO R0,$0200
  B @@score
-        MVII #VBLANK_ISR,R0
-        MVO R0,ISRVEC
-        SWAP R0
-        MVO R0,ISRVEC+1
-        EIS
 @@loop:
         B @@loop
         ENDP

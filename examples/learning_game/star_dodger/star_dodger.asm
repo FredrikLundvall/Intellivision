@@ -11,6 +11,8 @@
 SCRATCH ORG     $100, $100, "-RWBN"
 ISRVEC  RMB     2
 INPUT   RMB     1
+INPUT_OLD RMB  1
+PRESSED RMB    1
 FRAME   RMB     1
 HITS    RMB     1
 STATE   RMB     1
@@ -23,6 +25,7 @@ STARSHIP_X RMB  1
 STARSHIP_Y RMB  1
 METEOR_X   RMB  1
 METEOR_Y   RMB  1
+METEOR_FRAME RMB 1
 STARSHIP_A RMB  1
 METEOR_A   RMB  1
 
@@ -77,7 +80,7 @@ MAIN:   PROC
         BEQ     @@pause
         B       @@over
 @@title:
-        MVI     INPUT, R0
+        MVI     PRESSED, R0
         ANDI    #INPUT_START, R0
         BEQ     @@loop
         CALL    RESET_GAME
@@ -85,7 +88,7 @@ MAIN:   PROC
         MVO     R0, STATE
         B       @@loop
 @@play:
-        MVI     INPUT, R0
+        MVI     PRESSED, R0
         ANDI    #INPUT_PAUSE, R0
         BNEQ    @@set_pause
         MVI     INPUT, R0
@@ -95,6 +98,22 @@ MAIN:   PROC
         INCR    R1
         MVO     R1, STARSHIP_X
 @@check_hit:
+        MVI     FRAME, R0
+        MVI     METEOR_FRAME, R1
+        XOR     FRAME, R1
+        BEQ     @@check_hit_now
+        MVI     FRAME, R0
+        MVO     R0, METEOR_FRAME
+        ANDI    #$0003, R0
+        BNEQ    @@check_hit_now
+        MVI     METEOR_X, R1
+        DECR    R1
+        CMPI    #$0040, R1
+        BNC     @@save_meteor
+        MVII    #$0090, R1
+@@save_meteor:
+        MVO     R1, METEOR_X
+@@check_hit_now:
         MVI     HITS, R0
         BEQ     @@loop
         CLRR    R0
@@ -102,6 +121,8 @@ MAIN:   PROC
         MVI     LIVES, R0
         DECR    R0
         MVO     R0, LIVES
+        MVII    #$0090, R0
+        MVO     R0, METEOR_X
         MVII    #1, R0
         MVO     R0, SFX_TIMER
         MVII    #$40, R0
@@ -125,14 +146,14 @@ MAIN:   PROC
         MVO     R0, STATE
         B       @@loop
 @@pause:
-        MVI     INPUT, R0
+        MVI     PRESSED, R0
         ANDI    #INPUT_PAUSE, R0
         BEQ     @@loop
         MVII    #STATE_PLAY, R0
         MVO     R0, STATE
         B       @@loop
 @@over:
-        MVI     INPUT, R0
+        MVI     PRESSED, R0
         ANDI    #INPUT_START, R0
         BEQ     @@loop
         CALL    RESET_GAME
@@ -146,6 +167,12 @@ READ_INPUT: PROC
         XORI    #$00FF, R0
         ANDI    #$00FF, R0
         MVO     R0, INPUT
+        MVI     INPUT_OLD, R1
+        XOR     INPUT, R1
+        AND     INPUT, R1
+        MVO     R1, PRESSED
+        MVI     INPUT, R1
+        MVO     R1, INPUT_OLD
         JR      R5
         ENDP
 
@@ -154,8 +181,11 @@ RESET_GAME: PROC
         MVO     R0, LIVES
         CLRR    R0
         MVO     R0, SCORE
+        MVO     R0, INPUT_OLD
+        MVO     R0, PRESSED
         MVO     R0, FRAME
         MVO     R0, HITS
+        MVO     R0, METEOR_FRAME
         MVO     R0, SFX_TIMER
         MVII    #PSG.tone_a_off, R0
         MVO     R0, PSG0.chan_enable

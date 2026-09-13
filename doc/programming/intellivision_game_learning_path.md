@@ -28,14 +28,14 @@ so that the new idea in each level is easy to identify.
 | 5 | A reusable mini-game loop with restart state | `level05_game/level05_game.asm` |
 | 6 | PSG sound effects, frame timing, and sound shutoff | `level06_sound/level06_sound.asm` |
 | 7 | Decoded controller events with SCANHAND-style debouncing | `level07_scanhand/level07_scanhand.asm` |
-| 8 | Double-buffered GRAM animation and MOB card selection | `level08_gram_animation/level08_gram_animation.asm` |
+| 8 | Two-frame GRAM animation and MOB card selection | `level08_gram_animation/level08_gram_animation.asm` |
 | 9 | Tile-map lookup and solid-tile collision rules | `level09_tile_collision/level09_tile_collision.asm` |
-| 10 | Camera coordinates and coarse tile-map scrolling | `level10_scrolling/level10_scrolling.asm` |
-| 11 | HUD text, score formatting, and screen layout | `level11_hud_text/level11_hud_text.asm` |
+| 10 | Camera coordinates and a coarse STIC scroll value | `level10_scrolling/level10_scrolling.asm` |
+| 11 | HUD layout, explicit character data, and screen ownership | `level11_hud_text/level11_hud_text.asm` |
 | 12 | Complete title/play/game-over state flow | `level12_state_flow/level12_state_flow.asm` |
-| 13 | Deterministic random seeds and the SDK random routine | `level13_randomness/level13_randomness.asm` |
+| 13 | Deterministic random seeds and bounded random values | `level13_randomness/level13_randomness.asm` |
 | 14 | PSG channels, music ownership, and effect priorities | `level14_music_psg/level14_music_psg.asm` |
-| 15 | VBLANK budgets, ROM banking, and production cartridge layout | `level15_production/level15_production.asm` |
+| 15 | VBLANK budget markers and production cartridge layout | `level15_production/level15_production.asm` |
 
 The examples deliberately use direct polling before introducing `SCANHAND`.
 That makes the hardware model visible. Replace direct polling with
@@ -638,9 +638,10 @@ selection and other small shadows. Rewriting bitmap words during active display
 can produce tearing or corrupt the visible card.
 
 `examples/learning_game/level08_gram_animation/level08_gram_animation.asm`
-uploads two cards and alternates them from a frame counter. The important
-pattern is `animation_frame` in ordinary RAM and `MOB_A_SHADOW` as the value
-committed at the frame boundary. The example is not a complete player and has
+uploads two cards and alternates them from a frame counter. This is two-frame
+card animation, not a complete double-buffered renderer. The important
+pattern is `FRAME` in ordinary RAM and the selected card value committed at the
+frame boundary. The example is not a complete player and has
 no controller or collision rules.
 
 Start with two visibly different cards. Confirm one static card, then switch
@@ -702,7 +703,8 @@ a pause label. Update only changed fields; repeatedly formatting every field
 inside the frame boundary wastes time.
 
 `examples/learning_game/level11_hud_text/level11_hud_text.asm` increments a
-score and supplies explicit BACKTAB character data. It is deliberately honest:
+score and supplies explicit BACKTAB character data while the corrected ISR
+keeps the display handshake active. It is deliberately honest:
 it does not provide a general number formatter or a complete production HUD.
 Use `PRINT.FLS` for fixed labels and the SDK numeric routines (or a small
 fixed-width conversion routine) for changing values. Define whether scores
@@ -854,7 +856,9 @@ are enabled. This prevents a reset from inheriting stale gameplay state.
 
 ### Step 2: understand the game state machine
 
-`STATE` selects one of four paths:
+`STATE` selects one of four paths. `READ_INPUT` derives `PRESSED` from the
+current and previous raw input, so holding a start or pause control does not
+toggle a state repeatedly:
 
 | State | What it does | How it leaves |
 | --- | --- | --- |
@@ -874,7 +878,8 @@ During a normal play iteration:
 1. `READ_INPUT` reads the active-low left controller and stores a normalized
    value in `INPUT`.
 2. The play branch changes the starship position when input is present.
-3. The meteor position is maintained by the VBLANK-driven frame timing.
+3. Every fourth frame, the main loop moves the meteor left and wraps it to the
+   right edge. The VBLANK-driven `FRAME` value provides the timing source.
 4. `VBLANK_ISR` writes the RAM positions and attributes into MOB 0 and MOB 1.
 5. The ISR copies MOB 0's collision result into `HITS`.
 6. The next main-loop pass sees `HITS`, decrements `LIVES`, increments `SCORE`,
@@ -987,15 +992,63 @@ and test on the emulator as well as hardware when available.
 
 ## Glossary
 
+* **AS1600:** the assembler used by these examples; it converts source
+  mnemonics, directives, symbols, and data into an Intellivision cartridge
+  image and listing.
 * **BACKTAB:** the STIC background name/color table, normally 20 columns by 12
   rows; it selects cards and display attributes for background cells.
+* **BIDECLE:** an SDK assembler directive that emits a pointer in the byte
+  order expected by the EXEC cartridge header.
+* **CFGVAR:** an AS1600/SDK build directive that stores cartridge metadata in
+  the generated CFG file.
+* **Color Stack:** a STIC display mode in which background cells select colors
+  from a small rotating stack rather than carrying an independent full color
+  value.
+* **DECLE:** an AS1600 directive that emits one or more 16-bit words.
+* **EXEC:** the Intellivision executive ROM that calls the cartridge title,
+  initializes the machine, and enters the cartridge's main entry point.
+* **ROMHDR:** the cartridge header data structure containing the EXEC entry
+  pointers, title pointer, display initialization data, and other metadata.
+* **TITLE:** the cartridge procedure called by EXEC to show or identify the
+  cartridge before `MAIN` is entered.
+* **MAIN:** the cartridge's normal initialization and game-loop entry point.
+* **Fixed-point value:** an integer whose bits are deliberately divided into
+  whole-unit and fractional parts, allowing smooth motion without floating
+  point.
+* **GROM:** read-only graphics memory containing the built-in 8x8 character
+  cards.
 * **GRAM:** writable graphics memory used for custom 8x8 cards.
 * **MOB:** a movable object described by STIC position, card, color, and
   interaction attributes.
+* **Interaction bits:** MOB attribute flags that enable STIC collision reports
+  between selected objects.
+* **MOB shadow:** a RAM copy of a MOB's position or attribute word; the main
+  loop changes the shadow and the ISR commits it to STIC.
+* **Collision register:** a STIC read/clear register containing hardware
+  interaction results; it reports overlap facts, not score or damage rules.
+* **ISR vector:** the RAM address pair through which the CPU reaches the
+  installed interrupt service routine.
+* **ROMW:** an AS1600 directive selecting the cartridge word width/layout.
 * **STIC:** the Standard Television Interface Chip, responsible for display,
   BACKTAB, GRAM, MOBs, timing, and collision reporting.
-* **EXEC:** the Intellivision executive ROM that calls the cartridge title,
-  initializes the machine, and enters the cartridge's main entry point.
+* **Task queue:** a small FIFO of deferred controller or system events; its
+  handlers should do little work and leave game rules to the main loop.
+* **Debouncing:** converting a held physical control into a single press event
+  plus a separate held state, so menus do not toggle repeatedly.
+* **Tile map:** compact world data whose tile IDs are interpreted by collision
+  and rendering rules; it is separate from the STIC BACKTAB.
+* **Camera:** the world-to-screen offset used to choose which map region is
+  visible; moving the camera is not the same as moving the player.
+* **HUD:** a stable screen region reserved for score, lives, prompts, or
+  status text rather than map cells.
+* **Bank switching:** changing which ROM region is visible at a selected
+  address, allowing a cartridge to hold more code or assets than one fixed
+  mapping can expose.
+* **Active-low:** a digital signal convention in which zero means asserted
+  or pressed and one means inactive.
+* **BCD:** binary-coded decimal, a representation that stores each decimal
+  digit separately; it is useful for scores only when the display and arithmetic
+  rules require it.
 * **VBLANK:** the vertical blank interval and the safe frame boundary used by
   these examples for the display handshake and small STIC updates.
 * **PSG:** the programmable sound generator with three tone channels and noise
@@ -1005,6 +1058,10 @@ and test on the emulator as well as hardware when available.
   can update before the ISR commits it.
 * **SCANHAND:** SDK controller scanning/dispatch support that turns raw scans
   into debounced action events.
+* **PROC / ENDP:** AS1600 directives marking a procedure's source range; they
+  do not automatically create a callable stack frame.
+* **Stack:** RAM used by `CALL`, `RETURN`, and temporary register-saving
+  conventions; it must be initialized before library calls.
 
 ## Appendix: source and build map
 

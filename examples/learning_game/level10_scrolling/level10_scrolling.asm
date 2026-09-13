@@ -32,17 +32,17 @@ MAIN: PROC
         CLRR R0
  MVO R0,CAMERA_X
  MVO R0,COARSE_X
+        MVII #VBLANK_ISR_CAMERA,R0
+        MVO R0,ISRVEC
+        SWAP R0
+        MVO R0,ISRVEC+1
+        EIS
 @@move: MVI CAMERA_X,R0
  INCR R0
  MVO R0,CAMERA_X
  ANDI #7,R0
  MVO R0,COARSE_X
  B @@move
-        MVII #VBLANK_ISR,R0
-        MVO R0,ISRVEC
-        SWAP R0
-        MVO R0,ISRVEC+1
-        EIS
 @@loop:
         B @@loop
         ENDP
