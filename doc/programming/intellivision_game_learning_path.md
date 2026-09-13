@@ -24,7 +24,7 @@ so that the new idea in each level is easy to identify.
 | 1 | EXEC startup, ROM metadata, title, text, and entry point | `level01_title/level01_title.asm` |
 | 2 | BACKTAB background, VBLANK, and direct controller polling | `level02_input/level02_input.asm` |
 | 3 | GRAM artwork and one controllable MOB | `level03_player/level03_player.asm` |
-| 4 | Game state, frame timing, enemy movement, and collision | `level04_collision/level04_collision.asm` |
+| 4 | Frame timing, enemy movement, and collision reporting | `level04_collision/level04_collision.asm` |
 | 5 | A reusable mini-game loop with restart state | `level05_game/level05_game.asm` |
 | 6 | PSG sound effects, frame timing, and sound shutoff | `level06_sound/level06_sound.asm` |
 | 7 | Decoded controller events with SCANHAND-style debouncing | `level07_scanhand/level07_scanhand.asm` |
@@ -33,7 +33,7 @@ so that the new idea in each level is easy to identify.
 | 10 | Camera coordinates and a coarse STIC scroll value | `level10_scrolling/level10_scrolling.asm` |
 | 11 | HUD layout, explicit character data, and screen ownership | `level11_hud_text/level11_hud_text.asm` |
 | 12 | Complete title/play/game-over state flow | `level12_state_flow/level12_state_flow.asm` |
-| 13 | Deterministic random seeds and bounded random values | `level13_randomness/level13_randomness.asm` |
+| 13 | Deterministic random seeds and repeatable random values | `level13_randomness/level13_randomness.asm` |
 | 14 | PSG channels, music ownership, and effect priorities | `level14_music_psg/level14_music_psg.asm` |
 | 15 | VBLANK budget markers and production cartridge layout | `level15_production/level15_production.asm` |
 
@@ -241,10 +241,11 @@ target emulator or console.
 
 ### Step 4: update a BACKTAB address
 
-The example keeps a current cell address in `PLAYER`. For a production game,
-keep row and column separately and calculate `$0200 + row*20 + column`.
-Writing the cell during active display is unsafe, so the example changes the
-RAM state in the main loop and commits it in the ISR.
+The example keeps a current cell address in `PLAYER`. For a production game, keep row and column separately and calculate
+`$0200 + row*20 + column`. This first input example deliberately writes the
+BACKTAB cell from the main loop so the address calculation stays visible. It
+does not yet use the later MOB-shadow commit pattern; if a larger renderer
+shows tearing, queue the address/value in RAM and commit it during VBLANK.
 
 ### Checkpoint
 
@@ -754,10 +755,11 @@ result to the desired range, and keep a fixed seed while debugging so a bug
 reproduces.
 
 `examples/learning_game/level13_randomness/level13_randomness.asm`
-demonstrates a deterministic local routine and stores its output. It does not
-spawn an actor. A release build may mix reset RAM, controller timing, and a
-counter for a less predictable seed, but reproducible tests are more valuable
-than novelty during development.
+demonstrates a deterministic local routine and stores its raw output. It does
+not yet bound the value or spawn an actor; the exercise below adds the range
+mapping. A release build may mix reset RAM, controller timing, and a counter
+for a less predictable seed, but reproducible tests are more valuable than
+novelty during development.
 
 **Exercise:** map a random value into columns `0..MAP_WIDTH-1` without modulo
 bias concerns being hidden, then reject a solid tile using Level 9's lookup.
@@ -957,7 +959,7 @@ not yet provide:
 * directional decoded input through `SCANHAND`;
 * a scrolling tile map or tile-based collision;
 * formatted score/lives HUD text;
-* robust edge clamping or meteor respawning;
+* robust edge clamping, spawn variation, or invulnerability frames;
 * invulnerability, animation timing, or multiple enemies;
 * music restoration after a sound effect;
 * fixed-point movement or pixel-perfect collision;
@@ -965,7 +967,7 @@ not yet provide:
 
 Each omission points back to a preceding lesson. Add one feature at a time and
 keep the integrated source buildable after each change. A sensible next order
-is `SCANHAND`, edge clamping, HUD, meteor respawn, animation, music, and only
+is `SCANHAND`, edge clamping, spawn variation, HUD, animation, music, and only
 then scrolling or bank switching.
 
 Do not copy generated `.bin`, `.cfg`, or `.lst` files into the source tree.
