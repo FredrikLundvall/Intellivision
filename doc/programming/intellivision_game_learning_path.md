@@ -23,7 +23,8 @@ so that the new idea in each level is easy to identify.
 | 2 | BACKTAB background, VBLANK, and direct controller polling | `level02_input.asm` |
 | 3 | GRAM artwork and one controllable MOB | `level03_player.asm` |
 | 4 | Game state, frame timing, enemy movement, and collision | `level04_collision.asm` |
-| 5 | A reusable mini-game loop with sound and restart state | `level05_game.asm` |
+| 5 | A reusable mini-game loop with restart state | `level05_game.asm` |
+| 6 | PSG sound effects, frame timing, and sound shutoff | `level06_sound.asm` |
 
 The examples deliberately use direct polling before introducing `SCANHAND`.
 That makes the hardware model visible. Replace direct polling with
@@ -329,7 +330,7 @@ order in which the ISR reads and clears the register.
 
 ## Level 5: Turn the prototype into a small game
 
-The final example combines the previous levels into a tiny game loop:
+This example combines the previous levels into a tiny game loop:
 
 ```text
 TITLE -> PLAY -> GAME_OVER
@@ -389,8 +390,125 @@ After completing Level 5, study:
 * `examples/life` for a larger RAM-backed simulation;
 * `examples/game_template` for a framework layout.
 
-The final learning example is intentionally not a full commercial engine. Its
+This learning example is intentionally not a full commercial engine. Its
 purpose is to give each subsystem a visible home that can be expanded.
+
+## Level 6: Add a proper frame-timed sound effect
+
+Level 5 requests a sound when a collision occurs, but it does not yet teach
+how to manage the lifetime of that sound. Level 6 isolates the PSG so the
+effect can be tested independently, then applies the same pattern to a game.
+
+Read `examples/learning_game/level06_sound/level06_sound.asm` alongside
+`doc/programming/psg.txt` and the `UPDATE_SOUND` routine in
+`examples/game_template/game_template.asm`.
+
+### Step 1: understand the PSG registers
+
+The master PSG uses these important addresses:
+
+```text
+$01F0  channel A period, low byte
+$01F4  channel A period, high bits
+$01F8  tone/noise enable
+$01FB  channel A volume
+```
+
+The SDK symbols are preferable to hard-coded addresses:
+
+```asm
+        MVO     R0, PSG0.chan_enable
+        MVO     R0, PSG0.chn_a_lo
+        MVO     R0, PSG0.chn_a_hi
+        MVO     R0, PSG0.chn_a_vol
+```
+
+The period is a divisor. A smaller period produces a higher tone. The enable
+register controls which tone and noise generators are active; the volume
+register controls the channel amplitude.
+
+### Step 2: initialize silence
+
+Always silence channels during startup and restart:
+
+```asm
+        MVII    #PSG.tone_a_off + PSG.tone_b_off + PSG.tone_c_off, R0
+        MVO     R0, PSG0.chan_enable
+        CLRR    R0
+        MVO     R0, PSG0.chn_a_vol
+```
+
+This prevents a previous program or reset state from leaving an unwanted tone
+running.
+
+### Step 3: request an effect from game code
+
+Game logic should not contain all PSG register writes. It raises a request:
+
+```asm
+        MVII    #1, R0
+        MVO     R0, SFX_PENDING
+        MVII    #12, R0
+        MVO     R0, SFX_TIMER
+```
+
+`SFX_TIMER` is measured in frames, not main-loop iterations.
+
+### Step 4: start the tone
+
+The sound routine consumes the request and initializes channel A:
+
+```asm
+        MVII    #$40, R0
+        MVO     R0, PSG0.chan_enable
+        MVII    #$80, R0
+        MVO     R0, PSG0.chn_a_lo
+        CLRR    R0
+        MVO     R0, PSG0.chn_a_hi
+        MVII    #$0F, R0
+        MVO     R0, PSG0.chn_a_vol
+```
+
+The example starts the effect when any new controller input is detected. In a
+real game, call the same routine after a jump, shot, collision, or menu
+selection.
+
+### Step 5: stop the tone at a predictable time
+
+The VBLANK ISR decrements the timer. When it reaches zero, it disables channel
+A and clears its volume:
+
+```asm
+        MVI     SFX_TIMER, R0
+        BEQ     @@sound_done
+        DECR    R0
+        MVO     R0, SFX_TIMER
+        BNEQ    @@sound_done
+        MVII    #PSG.tone_a_off, R0
+        MVO     R0, PSG0.chan_enable
+        CLRR    R0
+        MVO     R0, PSG0.chn_a_vol
+@@sound_done:
+```
+
+This keeps the effect duration stable even when the main loop does different
+amounts of work. Keep the PSG writes short and never put a long music decoder
+inside the ISR.
+
+### Checkpoint
+
+Build `level06_sound.asm`, press a controller input, and verify that the tone
+starts and stops by itself. Then change the period, volume, and timer one at a
+time. If there is no sound, check the channel enable mask, volume, and that the
+effect request is actually set. If the sound never stops, check the timer
+decrement and the zero transition.
+
+### Exercises
+
+* Give the effect two notes by changing the period halfway through the timer.
+* Use the noise generator for an explosion-like effect.
+* Reserve channel A for sound effects and add a music driver on channels B/C.
+* Add a `SFX_PRIORITY` value so an important effect can interrupt a weaker one.
 
 ## A disciplined debugging method
 
@@ -421,6 +539,7 @@ After each level, make one small change:
 * Level 3: draw a second animation frame.
 * Level 4: make the enemy reverse at two boundaries.
 * Level 5: add a score and a limited number of lives.
+* Level 6: add two sound effects with different periods and durations.
 
 Keep each exercise in a separate copy until it works. This creates a sequence
 of known-good checkpoints that is invaluable when a later optimization breaks
