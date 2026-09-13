@@ -72,6 +72,29 @@ Levels 7–11  reusable input, graphics, maps, scrolling, and HUD structure
 Levels 12–15 architecture, randomness, audio ownership, and production limits
 ```
 
+## Make discovery part of the game
+
+You are not only studying a finished machine; you are learning to make the
+machine respond to your ideas. Keep a small experiment log with three notes:
+
+* **I changed:** the one constant, bitmap, address, or branch you edited.
+* **I expected:** what you thought the screen or sound would do.
+* **I discovered:** what the hardware actually did and what that taught you.
+
+Unexpected results are useful evidence. A blank screen can reveal a missing
+handshake, a wrong color can reveal an attribute bit, and a tone that refuses
+to stop can reveal that time belongs to VBLANK rather than the main loop.
+Treat each surprise as a question to investigate, not as a failed attempt.
+
+At the end of each phase, make a tiny personal modification before continuing:
+
+* **Levels 1–3:** give the cartridge your own title, color, and artwork.
+* **Levels 4–6:** invent a collision consequence and a sound for it.
+* **Levels 7–11:** choose an input, animation, map, or HUD behavior that
+  expresses your own game idea.
+* **Levels 12–15:** decide which system deserves a state, timer, channel, or
+  frame-budget entry in your design.
+
 ## Before starting
 
 You need:
@@ -277,8 +300,7 @@ shows tearing, queue the address/value in RAM and commit it during VBLANK.
 
 ### Checkpoint: ready to continue when
 
-Hold a controller input and confirm the colored cell changes. If it moves
-constantly,
+Hold a controller input and confirm the colored cell changes. If it moves constantly,
 your code is treating a held input as an edge event. If it moves in the wrong
 direction, inspect the active-low inversion and mask. If the screen blanks,
 check that the ISR writes `$0020` every frame.
@@ -505,7 +527,8 @@ engine.
 
 Level 5 requests a sound when a collision occurs, but it does not yet teach
 how to manage the lifetime of that sound. Level 6 isolates the PSG so the
-effect can be tested independently, then applies the same pattern to a game.
+effect can be tested independently, then shows the frame-timed pattern that a
+game can use.
 
 Read `examples/learning_game/level06_sound/level06_sound.asm` alongside
 `doc/programming/psg.txt` and the `UPDATE_SOUND` routine in
@@ -991,6 +1014,15 @@ Do not begin by changing the whole file. Use this order:
 After every change, ask which layer owns it: main-loop rules, RAM state, or
 VBLANK hardware commit. That question is more valuable than memorizing the
 instruction sequence.
+
+### Make it yours
+
+Once the unchanged skeleton runs, choose one harmless personality change:
+rename the game, draw a different meteor, change the alert pitch, or give the
+starship a starting position you prefer. Then make one mechanical change:
+alter the movement cadence, life count, or collision consequence. The first
+change says “this is my game”; the second demonstrates that you understand the
+system well enough to shape it.
 
 ### What this final lesson does not do
 
