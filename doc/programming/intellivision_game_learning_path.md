@@ -380,7 +380,7 @@ The attribute word selects GRAM and a foreground color. Use the symbolic
 fields from `gimini.asm`:
 
 ```asm
-        MVII    #STIC.mobx_visb + 76, R0
+        MVII    #STIC.mobx_visb + STIC.mobx_intr + 76, R0
         MVO     R0, PLAYER_X
         MVII    #STIC.moby_ysize2 + 44, R0
         MVO     R0, PLAYER_Y
@@ -399,8 +399,10 @@ fields from `gimini.asm`:
         MVO     R0, STIC.mob0_a
 ```
 
-An X coordinate of zero disables a MOB. Coordinates are in the STIC object
-field, so the visible center is not simply BACKTAB column 10, row 6.
+An X coordinate of zero disables a MOB. The visibility and interaction flags
+are separate from the eight-bit X position; preserve those flags when changing
+the position. Coordinates are in the STIC object field, so the visible center
+is not simply BACKTAB column 10, row 6.
 
 ### Checkpoint: ready to continue when
 

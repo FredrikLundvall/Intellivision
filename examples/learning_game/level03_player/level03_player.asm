@@ -44,7 +44,7 @@ MAIN:   PROC
         CALL    FILLMEM
         CALL    MEMCPY
         DECLE   $3800, PLAYER_GFX, 8
-        MVII    #STIC.mobx_visb + 76, R0
+        MVII    #STIC.mobx_visb + STIC.mobx_intr + 76, R0
         MVO     R0, PLAYER_X
         MVII    #STIC.moby_ysize2 + 44, R0
         MVO     R0, PLAYER_Y
@@ -59,7 +59,13 @@ MAIN:   PROC
         TSTR    R0
         BEQ     @@loop
         MVI     PLAYER_X, R1
+        ANDI    #STIC.mobx_xpos, R1
         INCR    R1
+        CMPI    #$00F0, R1
+        BNC     @@save_x
+        MVII    #$00F0, R1
+@@save_x:
+        ADDI    #STIC.mobx_visb + STIC.mobx_intr, R1
         MVO     R1, PLAYER_X
         B       @@loop
         ENDP
