@@ -1,9 +1,14 @@
 # Learning to Make an Intellivision Game
 
 This tutorial is a practical course in making an Intellivision game with the
-AS1600 assembler. It starts with a title screen and ends with a small
-gameplay framework containing a player, an enemy, input, collision detection,
-sound, and a frame-driven update loop.
+AS1600 assembler. It starts with a title screen and ends with the tools needed
+to build a small, complete game: a player, an enemy, maps, input, collision
+detection, animation, sound, game states, and a frame-driven update loop.
+
+You are not expected to understand the whole machine before writing your first
+program. Each level gives you one new power, one visible result, and one small
+challenge. Think of the course as a game itself: every working cartridge is a
+checkpoint, and every new subsystem is a new ability to unlock.
 
 The source for every level is outside this document in:
 
@@ -19,21 +24,21 @@ so that the new idea in each level is easy to identify.
 
 | Level | New idea | Source |
 | --- | --- | --- |
-| 1 | EXEC header, title, text, and a program entry point | `level01_title.asm` |
-| 2 | BACKTAB background, VBLANK, and direct controller polling | `level02_input.asm` |
-| 3 | GRAM artwork and one controllable MOB | `level03_player.asm` |
-| 4 | Game state, frame timing, enemy movement, and collision | `level04_collision.asm` |
-| 5 | A reusable mini-game loop with restart state | `level05_game.asm` |
-| 6 | PSG sound effects, frame timing, and sound shutoff | `level06_sound.asm` |
-| 7 | Decoded controller events with SCANHAND-style debouncing | `level07_scanhand.asm` |
-| 8 | Double-buffered GRAM animation and MOB card selection | `level08_gram_animation.asm` |
-| 9 | Tile-map lookup and solid-tile collision rules | `level09_tile_collision.asm` |
-| 10 | Camera coordinates and coarse tile-map scrolling | `level10_scrolling.asm` |
-| 11 | HUD text, score formatting, and screen layout | `level11_hud_text.asm` |
-| 12 | Complete title/play/game-over state flow | `level12_state_flow.asm` |
-| 13 | Deterministic random seeds and the SDK random routine | `level13_randomness.asm` |
-| 14 | PSG channels, music ownership, and effect priorities | `level14_music_psg.asm` |
-| 15 | VBLANK budgets, ROM banking, and production cartridge layout | `level15_production.asm` |
+| 1 | EXEC header, title, text, and a program entry point | `level01_title/level01_title.asm` |
+| 2 | BACKTAB background, VBLANK, and direct controller polling | `level02_input/level02_input.asm` |
+| 3 | GRAM artwork and one controllable MOB | `level03_player/level03_player.asm` |
+| 4 | Game state, frame timing, enemy movement, and collision | `level04_collision/level04_collision.asm` |
+| 5 | A reusable mini-game loop with restart state | `level05_game/level05_game.asm` |
+| 6 | PSG sound effects, frame timing, and sound shutoff | `level06_sound/level06_sound.asm` |
+| 7 | Decoded controller events with SCANHAND-style debouncing | `level07_scanhand/level07_scanhand.asm` |
+| 8 | Two-frame GRAM animation and MOB card selection | `level08_gram_animation/level08_gram_animation.asm` |
+| 9 | Tile-map lookup and solid-tile collision rules | `level09_tile_collision/level09_tile_collision.asm` |
+| 10 | Camera coordinates and coarse tile-map scrolling | `level10_scrolling/level10_scrolling.asm` |
+| 11 | HUD text, score formatting, and screen layout | `level11_hud_text/level11_hud_text.asm` |
+| 12 | Complete title/play/game-over state flow | `level12_state_flow/level12_state_flow.asm` |
+| 13 | Deterministic random seeds and the SDK random routine | `level13_randomness/level13_randomness.asm` |
+| 14 | PSG channels, music ownership, and effect priorities | `level14_music_psg/level14_music_psg.asm` |
+| 15 | VBLANK budgets, ROM banking, and production cartridge layout | `level15_production/level15_production.asm` |
 
 The examples deliberately use direct polling before introducing `SCANHAND`.
 That makes the hardware model visible. Replace direct polling with
@@ -42,7 +47,20 @@ That makes the hardware model visible. Replace direct polling with
 Levels 7–15 deliberately revisit the earlier small programs rather than
 pretending that one large engine is the only way to learn. They are
 standalone checkpoints: assemble each one from its own directory and compare
-the RAM shadows and frame boundary work with the preceding level.
+the RAM shadows and frame-boundary work with the preceding level.
+
+## The learning rhythm
+
+Use the same five-step rhythm at every level:
+
+1. **Predict** — read the goal and guess what the program should do.
+2. **Build** — assemble it and fix syntax or include-path errors.
+3. **Play** — run it in the emulator and look for the promised visible result.
+4. **Probe** — change one constant, mask, color, or timer and observe the effect.
+5. **Explain** — describe what belongs in the main loop and what belongs in VBLANK.
+
+If a level feels difficult, do not silently skip it. Copy the source, make the
+smallest possible change, and keep the working copy as a checkpoint.
 
 ## Before starting
 
@@ -54,7 +72,7 @@ You need:
 * a way to copy the generated `.bin` and `.cfg` files to the emulator's ROM
   directory.
 
-From each level directory, use:
+From each level directory, use a command like:
 
 ```text
 as1600 -o level01_title.bin -l level01_title.lst level01_title.asm
@@ -66,7 +84,26 @@ symbol addresses and confirming that RAM did not overlap; remove the generated
 remain source-only.
 
 The examples use the SDK library through relative paths. Run AS1600 from the
-level directory, or adjust the include path for your build system.
+level directory, not from `examples/learning_game`, or adjust the include path
+for your build system.
+
+## Your running project: Star Dodger
+
+To make the lessons feel connected, imagine that every level is a new build of
+the same game. The player is a small starship, the enemy is a drifting meteor,
+and the goal is to survive long enough to collect points.
+
+You will not implement the whole story at once:
+
+* Level 1 displays the title card.
+* Levels 2–3 make the starship visible and controllable.
+* Levels 4–6 add a meteor, impact detection, and a sound.
+* Levels 7–11 make the controls, animation, map, camera, and HUD useful.
+* Levels 12–15 turn the prototype into a maintainable cartridge project.
+
+The standalone examples are intentionally simpler than this story. Use the
+story to remember *why* a feature exists, then use the source to learn *how*
+it works.
 
 ## Level 1: Put a title and message on the screen
 
@@ -559,6 +596,8 @@ After each level, make one small change:
 
 ## Level 7: Decode controller input
 
+**Mission: teach the starship to understand people, not electrical signals.**
+
 Raw controller ports are active-low and contain keypad, disc, and button
 bits. A game should not spread those hardware masks through its rules. Decode
 the scan result once, retain held and newly-pressed values, and pass a small
@@ -568,15 +607,32 @@ standalone bridge that makes the decode boundary visible. `SCANHAND` is a
 background routine, not an ISR: call it regularly and keep its dispatch
 handlers short.
 
+**Try it:** make keypad Enter start the game while a disc direction changes the
+ship's velocity. Hold a button and confirm that one press does not become
+hundreds of events just because the main loop is fast.
+
+**You are ready to continue when:** you can explain the difference between a
+raw port value, a debounced input, a press event, and a release event.
+
 ## Level 8: Animate GRAM
+
+**Mission: make the starship blink, flap, or spin.**
 
 Upload GRAM cards while display access is disabled, then animate by changing a
 MOB's card number during VBLANK. Keep the current frame in RAM and commit it
 from the ISR; never rewrite an eight-word bitmap in the middle of active
-display. The example uses two eight-row frames and a frame counter. Add a
-third card only after the two-frame timing is stable.
+display. The example uses two eight-row frames and a frame counter.
+
+**Try it:** make the first frame last four video frames and the second frame
+last eight. The ship should look slower without changing its movement speed.
+That demonstrates why animation timing and physics timing should be separate.
+
+**You are ready to continue when:** you can add a third frame without moving
+the player or copying GRAM during active display.
 
 ## Level 9: Collide with a tile map
+
+**Mission: give the starship a safe route through an asteroid field.**
 
 Store the map as compact tile IDs, calculate `row * map_width + column`, and
 look up the destination tile before committing a movement. Zero can represent
@@ -584,7 +640,17 @@ floor while nonzero IDs represent walls, hazards, or doors. Keep map
 coordinates separate from MOB pixel coordinates so the same rule works while
 the camera scrolls.
 
+Start with one rule: `0` is empty space and `1` is solid rock. Then add a
+collectible tile that disappears when the ship enters its cell. This shows the
+difference between a solid tile (movement is rejected) and a gameplay tile
+(movement is accepted but state changes).
+
+**You are ready to continue when:** the ship cannot enter a wall and the
+collision code still works after the map width changes.
+
 ## Level 10: Scroll the camera
+
+**Mission: make the asteroid field larger than one screen.**
 
 A scrolling game moves the camera, not the player sprite. Track a world
 coordinate and a tile-aligned camera origin, redraw only the newly exposed
@@ -592,7 +658,21 @@ column or row, and leave HUD cells outside the map viewport. Coarse tile
 scrolling is the reliable first milestone; smooth pixel scrolling can be
 added after the BACKTAB update fits the VBLANK budget.
 
+Draw this relationship before writing code:
+
+```text
+world position - camera origin = screen position
+```
+
+Keep the player in world coordinates. When the player approaches the edge of
+the viewport, move the camera and redraw the newly visible map column.
+
+**You are ready to continue when:** you can move the camera without changing
+the player's world coordinate.
+
 ## Level 11: Draw a HUD
+
+**Mission: give the player useful information.**
 
 Reserve the top or bottom BACKTAB rows for score, lives, and prompts. Update
 only changed fields and format numbers with `PRINT.FLS` or the numeric
@@ -600,15 +680,46 @@ library routines. A HUD is ordinary display memory, but it has a different
 ownership rule from the scrolling map: camera redraws must never overwrite
 its cells.
 
+Choose an ownership rule before coding:
+
+```text
+HUD owns rows 0-1
+playfield owns rows 2-11
+```
+
+**Try it:** display `SCORE 0000`, award ten points for a collectible, and
+change only the four score cells. Add a lives counter without changing the
+map renderer.
+
+**You are ready to continue when:** the score survives camera movement and
+does not flicker because it is being rewritten unnecessarily.
+
 ## Level 12: Finish the state flow
 
-Use explicit `TITLE`, `PLAY`, and `GAME_OVER` states. Each state owns its
+**Mission: make the program feel like a game, not a demo that never ends.**
+
+Use explicit `TITLE`, `PLAY`, `PAUSE`, and `GAME_OVER` states. Each state owns its
 input, drawing, and transition conditions; a single reset routine restores
 player, score, sound, and collision state. The example intentionally cycles
 the states so the dispatch structure can be observed without requiring a
 complete game.
 
+Add the pause state yourself:
+
+```text
+PLAY + pause press -> PAUSE
+PAUSE + pause press -> PLAY
+GAME_OVER + Enter -> PLAY
+```
+
+Make sure the enemy and score stop changing while paused.
+
+**You are ready to continue when:** reset always produces the same clean
+starting state, regardless of where the previous game ended.
+
 ## Level 13: Add randomness
+
+**Mission: make every asteroid run slightly different.**
 
 Seed `RAND` once from a non-repeatable value when possible (or combine reset
 RAM, controller timing, and a counter), then use bounded results for spawn
@@ -616,7 +727,13 @@ positions and variations. Do not use a random value directly as a pointer or
 tile index without range reduction. Reproducible fixed seeds are valuable
 while debugging; change the seed only for the release build.
 
+Use a fixed seed while debugging so the same bug can be reproduced, then use
+a variable seed for release. Confirm that randomness never creates an invalid
+map address or an off-screen spawn.
+
 ## Level 14: Music and advanced PSG
+
+**Mission: give the game a pulse.**
 
 Treat channels B/C as music voices and reserve channel A for effects, or
 implement a priority mixer that can temporarily steal a voice. A tracker
@@ -624,14 +741,39 @@ advances one short pattern step per frame; it must not decode an entire song
 inside VBLANK. Save/restore channel enable, period, and volume when an effect
 interrupts music, and always provide a silence path on restart.
 
+Start with a two-note pattern and a rest. **Try it:** let a collision steal a
+music channel for a high-priority effect, then restore the music note when the
+effect timer expires. Decide what happens when two effects arrive together.
+
+**You are ready to continue when:** music advances at the same speed on a
+busy screen and reset always silences every channel.
+
 ## Level 15: VBLANK and production layout
+
+**Mission: make the game reliable enough to share.**
 
 The ISR should do a bounded display handshake, copy a small set of MOB
 shadows, sample collision, and advance frame clocks. Queue expensive work for
 the main loop. For a cartridge build, keep the EXEC header and fixed entry
 points in the fixed bank, put large maps/music in banked ROM, and document
-the bank switch protocol. `CFGVAR` metadata, a repeatable build script, and
-an emulator smoke test turn an assembled demo into a shippable cartridge.
+the bank switch protocol.
+
+Use a simple budget review:
+
+```text
+VBLANK work = required STIC writes + changed GRAM words + timing overhead
+```
+
+If the display glitches, remove work before adding cleverness. `CFGVAR`
+metadata, a repeatable build script, and an emulator smoke test turn an
+assembled demo into a shippable cartridge.
+
+**Try it:** build both BIN+CFG and ROM output and write down which one your
+emulator or cartridge tool expects.
+
+**You are ready to continue when:** you can explain what is fixed-bank code,
+what is banked data, what must happen in VBLANK, and how to reproduce a build
+from a clean checkout.
 
 Keep each exercise in a separate copy until it works. This creates a sequence
 of known-good checkpoints that is invaluable when a later optimization breaks
