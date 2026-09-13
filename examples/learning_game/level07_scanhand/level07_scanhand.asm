@@ -1,7 +1,7 @@
-; Standalone AS1600 checkpoint: SCANHAND integration
-        CFGVAR  "name" = "Learning Game - SCANHAND integration"
-        CFGVAR  "short_name" = "level07_scanhand"
-        CFGVAR  "description" = "Focused SCANHAND integration checkpoint."
+; Star Dodger Level 7: SCANHAND integration
+        CFGVAR  "name" = "Star Dodger 7 - SCANHAND"
+        CFGVAR  "short_name" = "Star Dodger 7"
+        CFGVAR  "description" = "Decode starship controls with SCANHAND."
         ROMW 16
         INCLUDE "../../library/gimini.asm"
 SCRATCH ORG $100, $100,"-RWBN"
@@ -29,7 +29,7 @@ ZERO: DECLE 0,0
         DECLE C_BLU,C_BLU,C_BLU,C_BLU,C_BLU
 ONES: DECLE 1
 TITLE: PROC
-        BYTE 102,"SCANHAND integration",0
+        BYTE 102,"STAR DODGER 7",0
         BEGIN
         RETURN
         ENDP
@@ -64,8 +64,9 @@ VBLANK_ISR: PROC
         JR R5
         ENDP
 HAND_DISPATCH: DECLE HAND_KEY,HAND_ACTION,HAND_DISC
-; This level is intentionally a SCANHAND/task-queue scaffold.  The handlers
-; only record the event; a complete game would replace them with gameplay.
+; This level is intentionally a SCANHAND/task-queue scaffold. The handlers
+; only record an event; the integrated Star Dodger uses the same boundary for
+; starship controls.
 HAND_KEY: PROC
  MVO R1,LAST_EVENT
  JR R5
@@ -81,4 +82,3 @@ HAND_DISC: PROC
 LAST_EVENT: DECLE 0
  INCLUDE "../../task/scanhand.asm"
  INCLUDE "../../task/taskq.asm"
-

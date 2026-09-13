@@ -1,7 +1,7 @@
-; Standalone AS1600 checkpoint: HUD text and score
-        CFGVAR  "name" = "Learning Game - HUD text and score"
-        CFGVAR  "short_name" = "level11_hud_text"
-        CFGVAR  "description" = "Focused HUD text and score checkpoint."
+; Star Dodger Level 11: HUD text and score
+        CFGVAR  "name" = "Star Dodger 11 - HUD"
+        CFGVAR  "short_name" = "Star Dodger 11"
+        CFGVAR  "description" = "Display the Star Dodger score HUD."
         ROMW 16
         INCLUDE "../../library/gimini.asm"
 SCRATCH ORG $100, $100,"-RWBN"
@@ -22,7 +22,7 @@ ZERO: DECLE 0,0
         DECLE C_BLU,C_BLU,C_BLU,C_BLU,C_BLU
 ONES: DECLE 1
 TITLE: PROC
-        BYTE 102,"HUD text and score",0
+        BYTE 102,"STAR DODGER 11",0
         BEGIN
         RETURN
         ENDP

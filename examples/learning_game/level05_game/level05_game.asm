@@ -1,7 +1,7 @@
-; Learning Game Level 5: player, enemy, collision, state, and PSG effect.
-        CFGVAR  "name" = "Learning Game 5 - Mini Game"
-        CFGVAR  "short_name" = "Learning 5"
-        CFGVAR  "description" = "A small frame-driven game framework."
+; Star Dodger Level 5: starship, meteor, collision, state, and PSG effect.
+        CFGVAR  "name" = "Star Dodger 5 - Play Loop"
+        CFGVAR  "short_name" = "Star Dodger 5"
+        CFGVAR  "description" = "A small frame-driven Star Dodger play loop."
         ROMW    16
         INCLUDE "../../library/gimini.asm"
 
@@ -36,7 +36,7 @@ ZERO:   DECLE   0, 0
         DECLE   C_BLU, C_BLU, C_BLU, C_BLU, C_BLU
 ONES:   DECLE   1
 TITLE:  PROC
-        BYTE    102, "Learning Game 5", 0
+        BYTE    102, "STAR DODGER 5", 0
         BEGIN
         RETURN
         ENDP

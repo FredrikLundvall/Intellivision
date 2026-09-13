@@ -1,8 +1,8 @@
-; Learning Game Level 6: a frame-timed PSG sound effect.
+; Star Dodger Level 6: a frame-timed meteor-alert PSG sound effect.
 ; Press any newly detected controller input to start the tone.
-        CFGVAR  "name" = "Learning Game 6 - Sound"
-        CFGVAR  "short_name" = "Learning 6"
-        CFGVAR  "description" = "Frame-timed PSG sound effect."
+        CFGVAR  "name" = "Star Dodger 6 - Sound"
+        CFGVAR  "short_name" = "Star Dodger 6"
+        CFGVAR  "description" = "Frame-timed meteor-alert PSG sound effect."
         ROMW    16
         INCLUDE "../../library/gimini.asm"
 
@@ -28,7 +28,7 @@ ZERO:   DECLE   0, 0
 ONES:   DECLE   1
 
 TITLE:  PROC
-        BYTE    102, "Learning Game 6", 0
+        BYTE    102, "STAR DODGER 6", 0
         BEGIN
         RETURN
         ENDP

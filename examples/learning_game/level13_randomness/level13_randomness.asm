@@ -1,7 +1,7 @@
-; Standalone AS1600 checkpoint: RAND use
-        CFGVAR  "name" = "Learning Game - RAND use"
-        CFGVAR  "short_name" = "level13_randomness"
-        CFGVAR  "description" = "Focused RAND use checkpoint."
+; Star Dodger Level 13: RAND use for meteor variation
+        CFGVAR  "name" = "Star Dodger 13 - Random Meteors"
+        CFGVAR  "short_name" = "Star Dodger 13"
+        CFGVAR  "description" = "Use bounded randomness for meteor variation."
         ROMW 16
         INCLUDE "../../library/gimini.asm"
 SCRATCH ORG $100, $100,"-RWBN"
@@ -22,7 +22,7 @@ ZERO: DECLE 0,0
         DECLE C_BLU,C_BLU,C_BLU,C_BLU,C_BLU
 ONES: DECLE 1
 TITLE: PROC
-        BYTE 102,"RAND use",0
+        BYTE 102,"STAR DODGER 13",0
         BEGIN
         RETURN
         ENDP

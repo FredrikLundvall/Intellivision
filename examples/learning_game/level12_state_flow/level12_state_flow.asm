@@ -1,7 +1,7 @@
-; Standalone AS1600 checkpoint: title play pause game-over state flow
-        CFGVAR  "name" = "Learning Game - title play pause game-over state flow"
-        CFGVAR  "short_name" = "level12_state_flow"
-        CFGVAR  "description" = "Focused title play pause game-over state flow checkpoint."
+; Star Dodger Level 12: title, play, pause, and game-over state flow
+        CFGVAR  "name" = "Star Dodger 12 - States"
+        CFGVAR  "short_name" = "Star Dodger 12"
+        CFGVAR  "description" = "Model Star Dodger title, play, pause, and game-over states."
         ROMW 16
         INCLUDE "../../library/gimini.asm"
 SCRATCH ORG $100, $100,"-RWBN"
@@ -22,7 +22,7 @@ ZERO: DECLE 0,0
         DECLE C_BLU,C_BLU,C_BLU,C_BLU,C_BLU
 ONES: DECLE 1
 TITLE: PROC
-        BYTE 102,"title play pause game-over state flow",0
+        BYTE 102,"STAR DODGER 12",0
         BEGIN
         RETURN
         ENDP
@@ -56,4 +56,3 @@ STATE_TITLE EQU 0
 STATE_PLAY EQU 1
 STATE_PAUSE EQU 2
 STATE_GAMEOVER EQU 3
-

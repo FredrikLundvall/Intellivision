@@ -1,7 +1,7 @@
-; Learning Game Level 3: custom GRAM art and one MOB.
-        CFGVAR  "name" = "Learning Game 3 - Player"
-        CFGVAR  "short_name" = "Learning 3"
-        CFGVAR  "description" = "Display and move a custom GRAM player."
+; Star Dodger Level 3: custom GRAM starship art and one MOB.
+        CFGVAR  "name" = "Star Dodger 3 - Starship"
+        CFGVAR  "short_name" = "Star Dodger 3"
+        CFGVAR  "description" = "Display and move the Star Dodger starship."
         ROMW    16
         INCLUDE "../../library/gimini.asm"
 
@@ -27,7 +27,7 @@ ZERO:   DECLE   0, 0
 ONES:   DECLE   1
 
 TITLE:  PROC
-        BYTE    102, "Learning Game 3", 0
+        BYTE    102, "STAR DODGER 3", 0
         BEGIN
         RETURN
         ENDP

@@ -1,7 +1,7 @@
-; Learning Game Level 4: two MOBs, frame timing, and interaction state.
-        CFGVAR  "name" = "Learning Game 4 - Collision"
-        CFGVAR  "short_name" = "Learning 4"
-        CFGVAR  "description" = "Move a player toward a patrol enemy."
+; Star Dodger Level 4: two MOBs, frame timing, and meteor interaction.
+        CFGVAR  "name" = "Star Dodger 4 - Meteor Collision"
+        CFGVAR  "short_name" = "Star Dodger 4"
+        CFGVAR  "description" = "Move a starship toward a patrolling meteor."
         ROMW    16
         INCLUDE "../../library/gimini.asm"
 
@@ -31,7 +31,7 @@ ZERO:   DECLE   0, 0
         DECLE   C_BLU, C_BLU, C_BLU, C_BLU, C_BLU
 ONES:   DECLE   1
 TITLE:  PROC
-        BYTE    102, "Learning Game 4", 0
+        BYTE    102, "STAR DODGER 4", 0
         BEGIN
         RETURN
         ENDP

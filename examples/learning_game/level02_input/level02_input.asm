@@ -1,7 +1,7 @@
-; Learning Game Level 2: background, VBLANK, and raw active-low input.
-        CFGVAR  "name" = "Learning Game 2 - Input"
-        CFGVAR  "short_name" = "Learning 2"
-        CFGVAR  "description" = "Move a background cell with the controller."
+; Star Dodger Level 2: background, VBLANK, and raw active-low input.
+        CFGVAR  "name" = "Star Dodger 2 - Input"
+        CFGVAR  "short_name" = "Star Dodger 2"
+        CFGVAR  "description" = "Move the starship marker with raw controller input."
         ROMW    16
         INCLUDE "../../library/gimini.asm"
 
@@ -25,7 +25,7 @@ ZERO:   DECLE   0, 0
 ONES:   DECLE   1
 
 TITLE:  PROC
-        BYTE    102, "Learning Game 2", 0
+        BYTE    102, "STAR DODGER 2", 0
         BEGIN
         RETURN
         ENDP
@@ -49,7 +49,7 @@ MAIN:   PROC
         XORI    #$00FF, R0
         ANDI    #$00FF, R0
         MVO     R0, INPUT
-        ; Any pressed input advances the cell so polarity is easy to test.
+        ; Any pressed input advances the starship marker so polarity is easy to test.
         TSTR    R0
         BEQ     @@loop
         MVI     PLAYER, R1

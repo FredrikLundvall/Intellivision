@@ -1,7 +1,7 @@
-; Standalone AS1600 checkpoint: camera coarse scrolling and STIC delay
-        CFGVAR  "name" = "Learning Game - camera coarse scrolling and STIC delay"
-        CFGVAR  "short_name" = "level10_scrolling"
-        CFGVAR  "description" = "Focused camera coarse scrolling and STIC delay checkpoint."
+; Star Dodger Level 10: camera coarse scrolling and STIC delay
+        CFGVAR  "name" = "Star Dodger 10 - Camera"
+        CFGVAR  "short_name" = "Star Dodger 10"
+        CFGVAR  "description" = "Scroll the Star Dodger asteroid-field camera."
         ROMW 16
         INCLUDE "../../library/gimini.asm"
 SCRATCH ORG $100, $100,"-RWBN"
@@ -22,7 +22,7 @@ ZERO: DECLE 0,0
         DECLE C_BLU,C_BLU,C_BLU,C_BLU,C_BLU
 ONES: DECLE 1
 TITLE: PROC
-        BYTE 102,"camera coarse scrolling and STIC delay",0
+        BYTE 102,"STAR DODGER 10",0
         BEGIN
         RETURN
         ENDP

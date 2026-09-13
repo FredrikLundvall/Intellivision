@@ -1,7 +1,7 @@
-; Standalone AS1600 checkpoint: tile-map lookup and solid collision
-        CFGVAR  "name" = "Learning Game - tile-map lookup and solid collision"
-        CFGVAR  "short_name" = "level09_tile_collision"
-        CFGVAR  "description" = "Focused tile-map lookup and solid collision checkpoint."
+; Star Dodger Level 9: asteroid-field tile lookup and solid collision
+        CFGVAR  "name" = "Star Dodger 9 - Asteroid Tiles"
+        CFGVAR  "short_name" = "Star Dodger 9"
+        CFGVAR  "description" = "Check starship movement against solid asteroid tiles."
         ROMW 16
         INCLUDE "../../library/gimini.asm"
 SCRATCH ORG $100, $100,"-RWBN"
@@ -22,7 +22,7 @@ ZERO: DECLE 0,0
         DECLE C_BLU,C_BLU,C_BLU,C_BLU,C_BLU
 ONES: DECLE 1
 TITLE: PROC
-        BYTE 102,"tile-map lookup and solid collision",0
+        BYTE 102,"STAR DODGER 9",0
         BEGIN
         RETURN
         ENDP

@@ -1,7 +1,7 @@
-; Standalone AS1600 checkpoint: two GRAM frames and card switching
-        CFGVAR  "name" = "Learning Game - two GRAM frames and card switching"
-        CFGVAR  "short_name" = "level08_gram_animation"
-        CFGVAR  "description" = "Focused two GRAM frames and card switching checkpoint."
+; Star Dodger Level 8: two starship GRAM frames and card switching
+        CFGVAR  "name" = "Star Dodger 8 - Starship Animation"
+        CFGVAR  "short_name" = "Star Dodger 8"
+        CFGVAR  "description" = "Animate the Star Dodger starship with GRAM cards."
         ROMW 16
         INCLUDE "../../library/gimini.asm"
 SCRATCH ORG $100, $100,"-RWBN"
@@ -22,7 +22,7 @@ ZERO: DECLE 0,0
         DECLE C_BLU,C_BLU,C_BLU,C_BLU,C_BLU
 ONES: DECLE 1
 TITLE: PROC
-        BYTE 102,"two GRAM frames and card switching",0
+        BYTE 102,"STAR DODGER 8",0
         BEGIN
         RETURN
         ENDP

@@ -1,7 +1,7 @@
-; Standalone AS1600 checkpoint: VBLANK budget and production layout
-        CFGVAR  "name" = "Learning Game - VBLANK budget and production layout"
-        CFGVAR  "short_name" = "level15_production"
-        CFGVAR  "description" = "Focused VBLANK budget and production layout checkpoint."
+; Star Dodger Level 15: VBLANK budget and production layout
+        CFGVAR  "name" = "Star Dodger 15 - Production"
+        CFGVAR  "short_name" = "Star Dodger 15"
+        CFGVAR  "description" = "Budget and package the Star Dodger cartridge."
         ROMW 16
         INCLUDE "../../library/gimini.asm"
 SCRATCH ORG $100, $100,"-RWBN"
@@ -23,7 +23,7 @@ ZERO: DECLE 0,0
         DECLE C_BLU,C_BLU,C_BLU,C_BLU,C_BLU
 ONES: DECLE 1
 TITLE: PROC
-        BYTE 102,"VBLANK budget and production layout",0
+        BYTE 102,"STAR DODGER 15",0
         BEGIN
         RETURN
         ENDP

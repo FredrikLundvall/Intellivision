@@ -1,4 +1,4 @@
-Intellivision progressive game-learning examples
+Intellivision Star Dodger progressive game-learning examples
 
 Build each level from its own directory with AS1600:
 
@@ -18,8 +18,22 @@ Build each level from its own directory with AS1600:
   as1600 -o level14_music_psg.bin -l level14_music_psg.lst level14_music_psg.asm
   as1600 -o level15_production.bin -l level15_production.lst level15_production.asm
 
-The source files are deliberately standalone and repeat some initialization
-code. Compare one level with the previous level to see exactly what changed.
+Levels 1-15 are deliberately standalone checkpoints. They all use the same
+Star Dodger vocabulary: starship/player, meteor/enemy, score/lives, and
+title/play/pause/game-over states. Compare one level with the previous level
+to see exactly what changed; the small programs do not all implement every
+system mentioned by the final project.
+
+The integrated teaching skeleton is:
+
+  star_dodger\star_dodger.asm
+
+Build it from its directory with the same command pattern:
+
+  as1600 -o star_dodger.bin -l star_dodger.lst star_dodger.asm
+
+It combines the taught systems at a deliberately modest working-skeleton
+level. It is not presented as a finished commercial game.
 Generated BIN, CFG, and LST files are build artifacts and are not source.
 
 Read doc/programming/intellivision_game_learning_path.md for the lesson

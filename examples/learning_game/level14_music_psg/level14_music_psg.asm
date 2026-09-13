@@ -1,7 +1,7 @@
-; Standalone AS1600 checkpoint: two-note PSG music sequencing and effect priority
-        CFGVAR  "name" = "Learning Game - two-note PSG music sequencing and effect priority"
-        CFGVAR  "short_name" = "level14_music_psg"
-        CFGVAR  "description" = "Focused two-note PSG music sequencing and effect priority checkpoint."
+; Star Dodger Level 14: two-note PSG music and effect priority
+        CFGVAR  "name" = "Star Dodger 14 - Music"
+        CFGVAR  "short_name" = "Star Dodger 14"
+        CFGVAR  "description" = "Sequence Star Dodger music and meteor effects."
         ROMW 16
         INCLUDE "../../library/gimini.asm"
 SCRATCH ORG $100, $100,"-RWBN"
@@ -23,7 +23,7 @@ ZERO: DECLE 0,0
         DECLE C_BLU,C_BLU,C_BLU,C_BLU,C_BLU
 ONES: DECLE 1
 TITLE: PROC
-        BYTE 102,"two-note PSG music sequencing and effect priority",0
+        BYTE 102,"STAR DODGER 14",0
         BEGIN
         RETURN
         ENDP
