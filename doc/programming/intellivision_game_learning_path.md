@@ -104,6 +104,121 @@ comparisons, not hidden prerequisites. Read the level source, its listing, and
 the relevant SDK include together; a prose claim never substitutes for
 running the cartridge.
 
+## Common pitfalls, errors, and misunderstandings
+
+Keep this section open while working through the lessons. Most early failures
+are recurring mistakes rather than mysterious hardware faults. When a symptom
+matches one of these entries, fix the underlying assumption before adding more
+code.
+
+### Build and source problems
+
+* **“The assembler is not recognized.”** The command is `as1600.exe`, not a
+  repository-specific absolute path. Put the SDK `bin` directory on `PATH`, or
+  use a shell where that directory has already been added.
+* **“The include file cannot be opened.”** Run AS1600 from the example's own
+  directory. The learning sources use relative includes such as
+  `../../library/gimini.asm`; running from the repository root changes what
+  those paths mean.
+* **“It assembled, so the game must be correct.”** Assembly proves syntax,
+  symbols, and output generation only. It does not prove a valid ROM header,
+  legal STIC timing, visible coordinates, correct input polarity, or correct
+  game rules. Always run the binary and inspect the listing.
+* **“The emulator cannot find the cartridge.”** Copy both the `.bin` and its
+  matching `.cfg` file to the emulator's ROM directory. Keep their base names
+  matching; a `.lst` file is not required at runtime.
+* **“Old behavior remains after a rebuild.”** The emulator may be loading a
+  copy from another directory. Check the file timestamp and ROM path, and
+  remove stale copies before diagnosing source code.
+
+### Startup and memory mistakes
+
+* **Skipping `DIS` while installing the vector.** Disable interrupts before
+  changing the stack or ISR vector, then enable them only after initialization
+  is complete. See [the startup sequence in Level 2](#step-1-reserve-state-and-install-the-isr).
+* **Putting state in the wrong memory region.** Keep ordinary variables in
+  RAM `ORG` regions and code/assets in cartridge ROM. A label's name does not
+  make a location writable.
+* **Forgetting the stack.** `CALL`, `RETURN`, and many SDK routines depend on
+  a valid stack in `R6`. Initialize it before calling library procedures.
+* **Confusing `DECLE` data with executable code.** A table of words or bitmap
+  rows is data; it becomes useful only when a routine reads it or copies it to
+  the appropriate hardware address.
+* **Changing a ROM pointer without checking byte order.** Cartridge header
+  pointers use the SDK's `BIDECLE` convention. Copy the established header
+  pattern before inventing a new one.
+
+### Display, GRAM, and MOB mistakes
+
+* **Forgetting the `$0020` handshake.** The VBLANK ISR must perform the
+  display-enable write every frame. A missing or misplaced handshake can make
+  a correct program appear blank.
+* **Writing every display value directly from the main loop.** Keep positions
+  and attributes in RAM shadows, then commit the small set of STIC writes in
+  VBLANK. This prevents partially updated objects and makes timing ownership
+  visible.
+* **Treating BACKTAB coordinates as MOB coordinates.** BACKTAB uses a
+  20-by-12 character grid; MOB positions use STIC object fields. Screen cell
+  `(10,6)` is not automatically the visual center of a MOB.
+* **Using X zero for a visible MOB.** In these examples an X value of zero
+  disables the MOB. Set visibility and interaction bits in the attribute word
+  as well as choosing a nonzero position.
+* **Selecting the wrong GRAM card.** Uploading artwork to `$3800` does not
+  guarantee that the MOB selects card zero with the expected color. Check the
+  card offset, GRAM bit, foreground color, visibility, and the listing.
+* **Uploading GRAM every frame.** For animation, upload cards once and change
+  the MOB card selection at the frame boundary unless measured timing proves
+  that repeated bitmap writes are safe.
+* **Assuming a collision is a game rule.** STIC reports an interaction fact.
+  The main loop must decide whether it means damage, a score, a bounce, or
+  nothing. Read and clear the collision result in a predictable place.
+
+### Input, timing, and sound mistakes
+
+* **Forgetting active-low input.** A pressed control is commonly represented
+  by zero at the hardware port. Normalize and mask the input before comparing
+  it with game constants.
+* **Confusing held with pressed.** Held input is appropriate for movement;
+  pressed/edge input is appropriate for start, pause, and fire. Use `SCANHAND`
+  or an explicit previous/current comparison for one-shot actions. See
+  [Level 7](#level-7-decode-controller-input).
+* **Using main-loop iterations as time.** The main loop can run many times per
+  video frame or stall while doing work. Use a VBLANK frame counter for
+  movement cadence, animation, sound duration, and delays.
+* **Making the ISR do game logic.** The ISR should handshake, commit shadows,
+  sample hardware facts, and advance short clocks. Keep collision consequences,
+  map rendering, formatting, AI, and long PSG/music work in the main loop.
+  See [the frame-budget lesson](#level-15-budget-the-frame-and-the-cartridge).
+* **Treating PSG period as frequency.** The PSG period is a divisor: smaller
+  values produce higher tones. A tone also needs the correct enable mask and
+  nonzero volume, plus an explicit silence path.
+* **Sharing a PSG channel accidentally.** Music and sound effects must agree
+  on channel ownership, or one routine silently overwrites another's state.
+  See [Level 14](#level-14-share-psg-voices).
+
+### Coordinates, maps, and game rules
+
+* **Mixing coordinate systems.** Keep world/map coordinates, camera
+  coordinates, BACKTAB row/column coordinates, and MOB object fields in
+  separate variables. Convert between them deliberately.
+* **Moving before checking the destination tile.** Compute the candidate
+  position, inspect its tile, and commit the move only when the tile is
+  allowed. Define out-of-bounds behavior explicitly.
+* **Assuming a tile map is automatically rendered.** A tile map is data.
+  Rendering it requires a separate BACKTAB update and camera policy. See
+  [Level 9](#level-9-collide-with-a-tile-map) and
+  [Level 10](#level-10-scroll-the-camera).
+* **Using an unbounded random value as an index.** Reduce a random word to a
+  documented range, reject invalid or solid positions, and use a fixed seed
+  while debugging so failures can be reproduced.
+* **Resetting only visible values.** A restart must clear score, lives, timers,
+  collision results, pending sounds, animation counters, and visibility—not
+  only the positions currently on screen.
+
+When in doubt, return to the
+[disciplined debugging method](#a-disciplined-debugging-method) and test one
+ownership boundary at a time.
+
 ## Level 1: Put a title and message on the screen
 
 Start with the smallest useful cartridge. The goal is not yet to make a game;
@@ -178,6 +293,9 @@ Level 2 introduces the two-part game architecture:
 * the VBLANK ISR performs the display-enable handshake.
 
 Read `examples/learning_game/level02_input/level02_input.asm`.
+If the screen is blank or input moves in the wrong direction, start with
+[Common pitfalls](#common-pitfalls-errors-and-misunderstandings), especially
+the handshake, active-low input, and coordinate notes.
 
 The player is represented by one colored BACKTAB cell. This is less visually
 interesting than a sprite, but it teaches address calculation and makes input
@@ -256,6 +374,9 @@ Level 3 adds custom artwork. The player is now an 8x8 GRAM bitmap displayed by
 MOB 0.
 
 Read `examples/learning_game/level03_player/level03_player.asm`.
+For an invisible or incorrectly colored object, use the
+[GRAM and MOB pitfalls](#display-gram-and-mob-mistakes) before changing the
+movement code.
 
 ### Step 1: define an 8x8 bitmap
 
@@ -462,6 +583,8 @@ effect can be tested independently, then applies the same pattern to a game.
 Read `examples/learning_game/level06_sound/level06_sound.asm` alongside
 `doc/programming/psg.txt` and the `UPDATE_SOUND` routine in
 `examples/game_template/game_template.asm`.
+If the effect is silent or never ends, check the
+[input, timing, and sound pitfalls](#input-timing-and-sound-mistakes).
 
 ### Step 1: understand the PSG registers
 
@@ -589,6 +712,8 @@ When a new level fails, return to the last working level and add one subsystem:
 Do not debug input, GRAM timing, collisions, and sound simultaneously. A
 successful assembly only proves that the syntax and symbols are valid; it
 does not prove that a STIC access happened during its legal timing window.
+The [common pitfalls](#common-pitfalls-errors-and-misunderstandings) section
+maps these symptoms to the most likely incorrect assumptions.
 
 ## Exercises
 
