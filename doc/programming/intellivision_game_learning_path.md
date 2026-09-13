@@ -46,6 +46,32 @@ earlier small programs rather than pretending that one large engine is the
 only way to learn. The final Star Dodger lesson then composes selected
 techniques and clearly lists what it still leaves out.
 
+## How to use this course
+
+Use the same four-step rhythm for every level:
+
+1. **Predict:** read the goal and identify which values should change.
+2. **Build:** assemble the unchanged source and keep the listing.
+3. **Observe:** run the cartridge and compare what you see and hear with your
+   prediction.
+4. **Change one thing:** make the exercise change, rebuild, and explain the
+   result in terms of ROM, RAM, STIC, the main loop, or VBLANK.
+
+Do not treat a level as complete merely because it assembles. Continue when
+you can point to the new idea in the source, describe its runtime symptom, and
+make one small change without losing the previous behavior. If a change
+breaks the program, return to the last working binary instead of adding more
+features.
+
+The course has four broad phases:
+
+```text
+Levels 1–3   start, display, and one controllable object
+Levels 4–6   frame timing, game rules, and sound
+Levels 7–11  reusable input, graphics, maps, scrolling, and HUD structure
+Levels 12–15 architecture, randomness, audio ownership, and production limits
+```
+
 ## Before starting
 
 You need:
@@ -164,11 +190,13 @@ MAIN:   PROC
         ENDP
 ```
 
-### Checkpoint
+### Checkpoint: ready to continue when
 
 You have learned how a cartridge starts, where screen text goes, and how
 library routines are called. If this level fails, do not add game logic yet.
 Compare it with `hello.asm` and fix the header or build command first.
+Continue when you can change the title text, assemble it, and explain why
+`MAIN` is reached after `TITLE`.
 
 ## Level 2: Read a controller and move a background cell
 
@@ -247,12 +275,15 @@ BACKTAB cell from the main loop so the address calculation stays visible. It
 does not yet use the later MOB-shadow commit pattern; if a larger renderer
 shows tearing, queue the address/value in RAM and commit it during VBLANK.
 
-### Checkpoint
+### Checkpoint: ready to continue when
 
-Hold a direction and confirm the colored cell changes. If it moves constantly,
+Hold a controller input and confirm the colored cell changes. If it moves
+constantly,
 your code is treating a held input as an edge event. If it moves in the wrong
 direction, inspect the active-low inversion and mask. If the screen blanks,
 check that the ISR writes `$0020` every frame.
+Continue when you can identify the input value, the BACKTAB address, and the
+display-enable write in the listing.
 
 ## Level 3: Replace the cell with a GRAM MOB
 
@@ -326,12 +357,13 @@ fields from `gimini.asm`:
 An X coordinate of zero disables a MOB. Coordinates are in the STIC object
 field, so the visible center is not simply BACKTAB column 10, row 6.
 
-### Checkpoint
+### Checkpoint: ready to continue when
 
 First show the player without input. Then add the Level 2 movement code.
 Debug in this order: GRAM copy, attribute source/card, nonzero X coordinate,
 Y coordinate, and finally movement. `bncpix`, `mob_test`, and `balls1` are
 useful comparisons.
+Continue when you can change the artwork without changing the movement code.
 
 ## Level 4: Add an enemy, frame timing, and collision
 
@@ -340,7 +372,7 @@ Level 4 changes the display into a game scene. It adds:
 * a second MOB;
 * an enemy that moves once per video frame;
 * a collision result copied from the STIC;
-* a score or hit state in ordinary RAM.
+* a hit state in ordinary RAM.
 
 Read `examples/learning_game/level04_collision/level04_collision.asm`.
 
@@ -386,12 +418,14 @@ collision register:
 Decode the saved result in the main loop. Do not run score, life, or restart
 logic inside the ISR.
 
-### Checkpoint
+### Checkpoint: ready to continue when
 
 Make the enemy move predictably before enabling collision. Then deliberately
 place the two MOBs on top of each other and verify that the hit state changes.
 If collision is always zero, check interaction bits, MOB visibility, and the
 order in which the ISR reads and clears the register.
+Continue when you can explain the difference between a STIC collision report
+and the game rule that responds to it.
 
 ## Level 5: Turn the prototype into a small game
 
@@ -459,6 +493,13 @@ After completing Level 5, study:
 
 This learning example is intentionally not a full commercial engine. Its
 purpose is to give each subsystem a visible home that can be expanded.
+Continue when you can restart through one routine and name the state variables
+that must be reset.
+
+Levels 1–6 form the first playable foundation. Levels 7–15 are a toolbox:
+they revisit the same ideas in isolated forms so you can choose the technique
+that a larger game needs without treating every later source file as a new
+engine.
 
 ## Level 6: Add a proper frame-timed sound effect
 
@@ -564,7 +605,7 @@ This keeps the effect duration stable even when the main loop does different
 amounts of work. Keep the PSG writes short and never put a long music decoder
 inside the ISR.
 
-### Checkpoint
+### Checkpoint: ready to continue when
 
 Build `level06_sound.asm`, press a controller input, and verify that the tone
 starts and stops by itself. Then change the period, volume, and timer one at a
@@ -655,8 +696,8 @@ pattern is `FRAME` in ordinary RAM and the selected card value committed at the
 frame boundary. The example is not a complete player and has
 no controller or collision rules.
 
-Start with two visibly different cards. Confirm one static card, then switch
-cards every 8 or 16 frames (the exact divider is a teaching constant). Add a
+Start with two visibly different cards. Confirm one static card, then change
+the source to switch cards every 8 or 16 frames instead of every frame. Add a
 third card only after the upload and VBLANK commit are stable.
 
 **Exercise:** make animation stop while a state is paused, and ensure that
@@ -959,8 +1000,8 @@ not yet provide:
 * directional decoded input through `SCANHAND`;
 * a scrolling tile map or tile-based collision;
 * formatted score/lives HUD text;
-* robust edge clamping, spawn variation, or invulnerability frames;
-* invulnerability, animation timing, or multiple enemies;
+* robust edge clamping, spawn variation, invulnerability frames, animation
+  timing, or multiple enemies;
 * music restoration after a sound effect;
 * fixed-point movement or pixel-perfect collision;
 * ROM bank switching, save data, or a production asset pipeline.
