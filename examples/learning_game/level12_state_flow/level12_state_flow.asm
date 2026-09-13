@@ -19,8 +19,7 @@ ROMHDR: BIDECLE ZERO
         BIDECLE TITLE
         DECLE $03C0
 ZERO: DECLE 0,0
-        DECLE C_BLU,C_BLU,C_BLU,C_BLU,C_BLU
-ONES: DECLE 1
+ONES:   DECLE   C_BLU, C_BLU, C_BLU, C_BLU, C_BLU
 TITLE: PROC
         BYTE 102,"STAR DODGER 12",0
         BEGIN
@@ -31,6 +30,11 @@ MAIN: PROC
         MVII #STACK,R6
         MVII #STATE_TITLE,R0
  MVO R0,GAME_STATE
+        MVII #VBLANK_ISR,R0
+        MVO R0,ISRVEC
+        SWAP R0
+        MVO R0,ISRVEC+1
+        EIS
 @@states: MVI GAME_STATE,R0
  INCR R0
  CMPI #STATE_GAMEOVER,R0
@@ -40,13 +44,6 @@ MAIN: PROC
 @@reset: MVII #STATE_TITLE,R0
  MVO R0,GAME_STATE
  B @@states
-        MVII #VBLANK_ISR,R0
-        MVO R0,ISRVEC
-        SWAP R0
-        MVO R0,ISRVEC+1
-        EIS
-@@loop:
-        B @@loop
         ENDP
 VBLANK_ISR: PROC
         MVO R0, $20

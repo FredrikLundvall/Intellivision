@@ -164,8 +164,9 @@ Read `examples/learning_game/level01_title/level01_title.asm` alongside
 
 ### Step 1: metadata and ROM width
 
-`CFGVAR` adds descriptive cartridge metadata. `ROMW 16` selects the normal
-16-bit example layout:
+`CFGVAR` adds descriptive cartridge metadata to the generated CFG file.
+`ROMW 16` selects the normal 16-bit example layout. The `INCLUDE` makes the
+SDK's symbolic constants and helper routines available to the source:
 
 ```asm
         CFGVAR  "name" = "Learning Game 1"
@@ -175,8 +176,10 @@ Read `examples/learning_game/level01_title/level01_title.asm` alongside
 
 ### Step 2: provide the EXEC header
 
-The header points EXEC at `MAIN` and `TITLE`. `ZERO` supplies the initial
-display mode and colors:
+The header is a seven-word table read by EXEC before the cartridge program
+runs. Its first six words are pointers; the final word contains startup flags.
+The pointer targets are ordinary labels, so the names `ZERO` and `ONES` are
+conventions rather than magic assembler keywords:
 
 ```asm
 ROMHDR: BIDECLE ZERO
@@ -187,18 +190,38 @@ ROMHDR: BIDECLE ZERO
         BIDECLE TITLE
         DECLE   $03C0
 ZERO:   DECLE   0, 0
-        DECLE   C_BLU, C_BLU, C_BLU, C_BLU, C_BLU
-ONES:   DECLE   1
+ONES:   DECLE   C_BLU, C_BLU, C_BLU, C_BLU, C_BLU
 ```
+
+For this minimal cartridge, the entries mean:
+
+| Header entry | Value in this example | Purpose |
+| --- | --- | --- |
+| MOB picture base | `ZERO` | Empty MOB-picture list. |
+| Process table | `ZERO` | Empty EXEC process table. |
+| Program start | `MAIN` | Entry point after the title screen. |
+| Background picture base | `ZERO` | No EXEC background-picture list. |
+| GRAM picture list | `ONES` | Initial color-stack/border data follows the header. |
+| Cartridge title | `TITLE` | Title procedure and title/date string. |
+| Flags | `$03C0` | No ECS title, run cartridge code after the title, and no title-screen clicks. |
+
+`ZERO` contains two initialization words: border control `$0000` and display
+mode `$0000`, which selects Color Stack mode. `ONES` contains the four initial
+color-stack entries and the initial border color. Here all five values are
+`C_BLU`, so the title starts with a blue color stack and blue border. The
+header's `BIDECLE` directive emits pointers in the byte order expected by
+EXEC; do not replace it with an ordinary `DECLE` pointer.
 
 ### Step 3: customize the title and enter the program
 
-The title procedure returns to EXEC. `MAIN` writes a message and then returns.
-At this level there is no game loop:
+The title procedure returns to EXEC. The first byte, `102`, is the EXEC title
+record marker; the following zero-terminated text is shown as the cartridge
+title. `MAIN` clears the BACKTAB, writes one yellow string at row 5, column 3,
+and then returns. At this level there is no game loop:
 
 ```asm
 TITLE:  PROC
-        BYTE    102, "Learning 1", 0
+        BYTE    102, "STAR DODGER", 0
         BEGIN
         RETURN
         ENDP
@@ -207,8 +230,8 @@ MAIN:   PROC
         BEGIN
         CALL    CLRSCR
         CALL    PRINT.FLS
-        DECLE   C_YEL, $200 + 5*20 + 4
-        STRING  "PRESS RESET FOR LEVEL 2", 0
+        DECLE   C_YEL, $200 + 5*20 + 3
+        STRING  "DODGE THE METEORS", 0
         RETURN
         ENDP
 ```
@@ -392,7 +415,7 @@ Continue when you can change the artwork without changing the movement code.
 Level 4 changes the display into a game scene. It adds:
 
 * a second MOB;
-* an enemy that moves once per video frame;
+* an enemy whose movement is paced by the VBLANK frame counter;
 * a collision result copied from the STIC;
 * a hit state in ordinary RAM.
 
@@ -423,7 +446,8 @@ copies `STIC.mob0_c` into `HITS`.
 ```
 
 This makes the enemy move every four VBLANKs regardless of how quickly the
-main loop spins.
+main loop spins. The source intentionally uses four frames so the movement is
+easy to observe; a finished game can choose a different cadence.
 
 ### Step 3: enable interaction
 
@@ -800,8 +824,10 @@ TITLE -> PLAY -> PAUSE -> PLAY
 
 `examples/learning_game/level12_state_flow/level12_state_flow.asm` cycles
 through `STATE_TITLE`, `STATE_PLAY`, `STATE_PAUSE`, and `STATE_GAMEOVER` so the
-dispatch shape can be observed. It does not pretend that each state already
-has a finished renderer or input policy.
+dispatch shape can be observed. The cycle is automatic rather than
+input-driven, and its ISR only demonstrates the normal display handshake. It
+does not pretend that each state already has a finished renderer or input
+policy.
 
 Each state should own its entry work, allowed input, drawing requests, and
 transition conditions. A single `RESET_GAME` routine should restore player,
@@ -858,7 +884,9 @@ The main loop may spin at a different rate; gameplay timers must therefore be
 based on VBLANK frames, not loop iterations.
 
 `examples/learning_game/level15_production/level15_production.asm` marks a
-fixed-bank layout and counts bounded work. It does not implement bank
+fixed-bank layout and simulates a bounded work budget in the main loop. Its
+ISR only performs the display-enable handshake; the example does not claim
+that the simulated work runs during VBLANK. It also does not implement bank
 switching, so the markers are a review aid rather than a performance claim.
 For a real cartridge, keep EXEC entry points and the fixed header reachable,
 put large maps/music in documented banked regions, and specify the bank
@@ -1162,6 +1190,51 @@ Intellivision emulator, and remove generated artifacts. The examples are
 teaching checkpoints: they may expose a hardware boundary without implementing
 the entire feature named by the lesson. Read the source and test the binary
 before generalizing from a label or table entry.
+
+## Appendix: EXEC header quick reference
+
+The first words at cartridge address `$5000` form the EXEC-compatible header.
+EXEC reads this table before it calls the cartridge title and then the game
+entry point. The learning examples use the same minimal header pattern as
+`examples/hello/hello.asm`:
+
+```asm
+ROMHDR: BIDECLE ZERO       ; MOB picture list
+        BIDECLE ZERO       ; process table
+        BIDECLE MAIN       ; program entry after TITLE
+        BIDECLE ZERO       ; background picture list
+        BIDECLE ONES       ; GRAM-picture/color initialization list
+        BIDECLE TITLE      ; title procedure
+        DECLE   $03C0      ; startup flags
+ZERO:   DECLE   $0000      ; border control
+        DECLE   $0000      ; Color Stack mode
+ONES:   DECLE   C_BLU, C_BLU
+        DECLE   C_BLU, C_BLU
+        DECLE   C_BLU      ; color stack 0..3 and border
+```
+
+| Header item | Meaning | Minimal-example value |
+| --- | --- | --- |
+| MOB picture list | Optional EXEC-managed MOB picture definitions. | `ZERO`, an empty list. |
+| Process table | Optional EXEC process definitions. | `ZERO`, an empty list. |
+| Program entry | Address EXEC enters after the title returns. | `MAIN`. |
+| Background picture list | Optional EXEC-managed background definitions. | `ZERO`, an empty list. |
+| GRAM-picture/color list | Pointer used by the minimal header's initial graphics/color data convention. | `ONES`. |
+| Title pointer | Procedure that supplies the title text or title-screen changes. | `TITLE`. |
+| Startup flags | ECS/title-screen and post-title behavior flags. | `$03C0`. |
+
+The two words at `ZERO` are initial display controls. Border control `$0000`
+leaves the border at its initialized value, and mode `$0000` selects Color
+Stack mode rather than foreground/background mode. The five words at `ONES`
+initialize Color Stack entries 0 through 3 and the border color; setting all
+five to `C_BLU` produces a blue starting display.
+
+`$03C0` is the standard flag value used by these small cartridges: there is
+no ECS title sequence, execution continues at `MAIN` after the title, and the
+title screen does not wait for controller clicks. The exact header layout is
+part of the EXEC contract, so copy a known-good pattern before changing it.
+If you need a different display mode, consult `doc/programming/stic.txt` and
+change both the mode word and the BACKTAB word format consistently.
 
 ## Appendix: common pitfalls, errors, and misunderstandings
 

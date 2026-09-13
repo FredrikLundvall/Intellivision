@@ -1,7 +1,7 @@
 ; Star Dodger Level 13: RAND use for meteor variation
         CFGVAR  "name" = "Star Dodger 13 - Random Meteors"
         CFGVAR  "short_name" = "Star Dodger 13"
-        CFGVAR  "description" = "Use bounded randomness for meteor variation."
+        CFGVAR  "description" = "Generate repeatable random values for meteor variation."
         ROMW 16
         INCLUDE "../../library/gimini.asm"
 SCRATCH ORG $100, $100,"-RWBN"
@@ -19,8 +19,7 @@ ROMHDR: BIDECLE ZERO
         BIDECLE TITLE
         DECLE $03C0
 ZERO: DECLE 0,0
-        DECLE C_BLU,C_BLU,C_BLU,C_BLU,C_BLU
-ONES: DECLE 1
+ONES:   DECLE   C_BLU, C_BLU, C_BLU, C_BLU, C_BLU
 TITLE: PROC
         BYTE 102,"STAR DODGER 13",0
         BEGIN
