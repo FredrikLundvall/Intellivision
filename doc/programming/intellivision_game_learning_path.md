@@ -32,7 +32,7 @@ so that the new idea in each level is easy to identify.
 | 9 | Tile-map lookup and solid-tile collision rules | `level09_tile_collision/level09_tile_collision.asm` |
 | 10 | Camera coordinates and a coarse STIC scroll value | `level10_scrolling/level10_scrolling.asm` |
 | 11 | HUD layout, explicit character data, and screen ownership | `level11_hud_text/level11_hud_text.asm` |
-| 12 | Complete title/play/game-over state flow | `level12_state_flow/level12_state_flow.asm` |
+| 12 | Complete title/play/pause/game-over state flow | `level12_state_flow/level12_state_flow.asm` |
 | 13 | Deterministic random seeds and repeatable random values | `level13_randomness/level13_randomness.asm` |
 | 14 | PSG channels, music ownership, and effect priorities | `level14_music_psg/level14_music_psg.asm` |
 | 15 | VBLANK budget markers and production cartridge layout | `level15_production/level15_production.asm` |
@@ -276,7 +276,7 @@ the example:
 
 ### Step 3: invert active-low input
 
-The example reads the left controller and moves the cell when a direction bit
+The example reads the left controller and moves the cell when any input bit
 is present:
 
 ```asm
