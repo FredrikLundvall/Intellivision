@@ -101,8 +101,8 @@ You need:
 
 * the SDK checkout;
 * `as1600.exe` available on your `PATH` (the repository helper uses its fixed
-  `D:\source\Repos\Intellivision\jzintvSDK\bin\as1600.exe` path; manual AS1600
-  invocations may instead resolve it through `PATH`);
+  `path-to-assembler\bin\as1600.exe` path; manual AS1600 invocations may
+  instead resolve it through `PATH`);
 * an Intellivision emulator such as jzIntv;
 * a way to copy the generated `.bin` and `.cfg` files to the emulator's ROM
   directory.
@@ -1314,9 +1314,8 @@ code.
 ### Build and source problems
 
 * **“The assembler is not recognized.”** The repository helper invokes the
-  fixed SDK path
-  `D:\source\Repos\Intellivision\jzintvSDK\bin\as1600.exe`. For manual builds,
-  the command is `as1600.exe`; put the SDK `bin` directory on `PATH`, or use a
+  fixed SDK path `path-to-assembler\bin\as1600.exe`. For manual builds, the
+  command is `as1600.exe`; put the SDK `bin` directory on `PATH`, or use a
   shell where that directory has already been added.
 * **“The include file cannot be opened.”** Run AS1600 from the example's own
   directory. The learning sources use relative includes such as
