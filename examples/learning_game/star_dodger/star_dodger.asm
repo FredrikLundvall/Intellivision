@@ -220,6 +220,8 @@ VBLANK_ISR: PROC
         MVO     R0, STIC.mob1_a
         MVI     STIC.mob0_c, R0
         MVO     R0, HITS
+        CLRR    R0
+        MVO     R0, STIC.mob0_c
         MVI     FRAME, R0
         INCR    R0
         MVO     R0, FRAME

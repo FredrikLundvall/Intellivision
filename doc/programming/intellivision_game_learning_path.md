@@ -27,7 +27,7 @@ so that the new idea in each level is easy to identify.
 | 4 | Frame timing, enemy movement, and collision reporting | `level04_collision/level04_collision.asm` |
 | 5 | A reusable mini-game loop with restart state | `level05_game/level05_game.asm` |
 | 6 | PSG sound effects, frame timing, and sound shutoff | `level06_sound/level06_sound.asm` |
-| 7 | Decoded controller events with SCANHAND-style debouncing | `level07_scanhand/level07_scanhand.asm` |
+| 7 | SCANHAND/task-queue integration scaffold for controller events | `level07_scanhand/level07_scanhand.asm` |
 | 8 | Two-frame GRAM animation and MOB card selection | `level08_gram_animation/level08_gram_animation.asm` |
 | 9 | Tile-map lookup and solid-tile collision rules | `level09_tile_collision/level09_tile_collision.asm` |
 | 10 | Camera coordinates and a coarse STIC scroll value | `level10_scrolling/level10_scrolling.asm` |
@@ -100,7 +100,9 @@ At the end of each phase, make a tiny personal modification before continuing:
 You need:
 
 * the SDK checkout;
-* `as1600.exe` available on your `PATH`;
+* `as1600.exe` available on your `PATH` (the repository helper uses its fixed
+  `D:\source\Repos\Intellivision\jzintvSDK\bin\as1600.exe` path; manual AS1600
+  invocations may instead resolve it through `PATH`);
 * an Intellivision emulator such as jzIntv;
 * a way to copy the generated `.bin` and `.cfg` files to the emulator's ROM
   directory.
@@ -121,6 +123,12 @@ level directory, or adjust the include path for your build system.
 
 ## The machine model used throughout
 
+These lessons use one fixed hardware model: a single-bank, 16-bit ROM cartridge
+(`ROMW 16`) running on NTSC Intellivision hardware. They do not cover bank
+switching, ECS paging, PAL timing, or a variable-width cartridge. Keep those
+assumptions explicit when adapting an example; addresses and VBLANK budgets
+below are for this model.
+
 It helps to keep three kinds of memory separate. Cartridge ROM holds the EXEC
 header, code, constants, and usually maps and music. General-purpose RAM holds
 game state and *shadows* of values that will later be committed to hardware.
@@ -140,11 +148,41 @@ EXEC -> TITLE/MAIN initialization
         VBLANK: handshake -> STIC shadows/collision -> frame clocks
 ```
 
-The `$0020` display-enable handshake in the examples is part of the EXEC/STIC
-timing contract. Keep the ISR bounded and deterministic. Do not put map
+On NTSC hardware, VBlank is divided into two useful periods. Period 1 is the
+STIC-control window: perform the EXEC handshake and the small MOB/BACKTAB/STIC
+shadow commits there. Period 2 is the GRAM/GROM access window: upload or read
+GRAM/GROM data there when the display is safely disabled. The `$0020` write is
+the display strobe that hands display control back to the STIC/EXEC contract;
+it is not a general-purpose delay or a substitute for the two-period schedule.
+Keep the ISR bounded and deterministic. Do not put map
 redrawing, number formatting, or a music decoder in it merely because those
 operations are convenient to call there. This ownership model is the central
 idea behind Levels 2–15.
+
+### Controller ports and scan semantics
+
+The left and right hand-controller scan ports are `$01FE` and `$01FF`,
+respectively. Inputs are active-low: a zero bit means that the corresponding
+line is asserted, while an unpressed line reads high. The disc directions,
+keypad rows/columns, and action buttons overlap in the scan encoding; a value
+is meaningful only together with the scan phase and port being read. Do not
+assume that a disc direction and a keypad/action bit are mutually exclusive,
+or that a raw byte is already a stable button event. Normalize the active-low
+scan, retain the port/phase context, and then apply held/pressed policy.
+The [Hand Controller wiki page](https://wiki.intellivision.us/index.php/Hand_Controller)
+documents the hardware scan table.
+
+### GRAM MOB attributes and card indexing
+
+GRAM is addressed as 8-word cards. GRAM card 0 starts at `$3800`; card 1 starts
+at `$3808`, so the logical card index is the card number and its eight-word
+address is `$3800 + index*8`. An attribute word must select GRAM and carry the
+logical card index along with its foreground color, visibility, interaction,
+and size/priority control flags. Keep the index distinct from those flags:
+changing a card must not accidentally clear `GRAM`, visibility, or interaction
+bits. The [Graphics RAM wiki page](https://wiki.intellivision.us/index.php/Graphics_RAM)
+and [STIC wiki page](https://wiki.intellivision.us/index.php/STIC) show the
+attribute bit layout.
 
 The source tree mirrors the progression: each `levelNN_name` directory has a
 same-named `.asm` file and can be assembled independently. Library examples
@@ -564,14 +602,22 @@ If the effect is silent or never ends, check the
 
 ### Step 1: understand the PSG registers
 
-The master PSG uses these important addresses:
+The master PSG is memory-mapped at `$01F0`; the ECS PSG is at `$00F0`.
+The register model is grouped by channel:
 
 ```text
-$01F0  channel A period, low byte
-$01F4  channel A period, high bits
-$01F8  tone/noise enable
-$01FB  channel A volume
+R0/R1/R2   tone-period low words for channels A/B/C
+R4/R5/R6   corresponding upper period words
+R8         tone/noise enable
+R9         noise period
+R11/R12/R13 volume and envelope controls
 ```
+
+For the master device, the corresponding channel-A low, upper, enable, and
+volume addresses are `$01F0`, `$01F4`, `$01F8`, and `$01FB`; add the same
+register offsets to `$00F0` when addressing the ECS PSG. A period value of zero
+means `$1000`, not silence. Silence requires disabling the generator and/or
+writing zero volume.
 
 The SDK symbols are preferable to hard-coded addresses:
 
@@ -702,13 +748,15 @@ After each level, make one small change:
 * Level 5: add a score and a limited number of lives.
 * Level 6: add two sound effects with different periods and durations.
 
-## Level 7: Decode controller input
+## Level 7: Scaffold SCANHAND and a controller task queue
 
-Raw controller ports are useful for learning but awkward for game rules. The
-bits are active-low, the disc and keypad share a scan interface, and a held
-button is not the same event as a newly pressed button. Read the complete
-hardware result in one place, convert it to a small action word, and let the
-rest of the program consume that word.
+Raw controller ports are useful for learning but awkward for game rules. This
+lesson is explicitly a SCANHAND/task-queue integration scaffold: it shows where
+raw scans, queued work, and game rules connect, but it is not a complete
+gameplay decoder or a production debounce policy. The bits are active-low, the
+disc and keypad share a scan interface, and a held button is not the same event
+as a newly pressed button. Supply the decoder and debounce policy appropriate
+to your game and hardware test plan.
 
 Read `examples/learning_game/level07_scanhand/level07_scanhand.asm` with
 `examples/task/scanhand.asm`. The lesson initializes `SCANHAND` and `RUNQ` and
@@ -716,19 +764,21 @@ records an event; it intentionally does not move an actor. `SCANHAND` is a
 background routine, not an interrupt routine: call it regularly and keep its
 handlers short.
 
-A useful ownership boundary is:
+A useful ownership boundary for the scaffold is:
 
 ```text
 controller hardware -> SCANHAND -> held/pressed action bits -> game rules
 ```
 
 Keep `held` for continuous movement and `pressed` for one-shot actions such
-as pause or fire. If an action repeats unexpectedly, inspect the edge
-calculation before changing the game state machine.
+as pause or fire once your decoder has defined those fields. If an action
+repeats unexpectedly, inspect the edge calculation and queue lifetime before
+changing the game state machine.
 
-**Exercise:** add a `pressed` value beside `LAST_EVENT`, then make a test
-handler fire only on the transition from zero to nonzero. Compare the result
-with direct polling from Level 2.
+**Exercise:** add a `pressed` value beside `LAST_EVENT`, define a decoder for
+the scan values used by your controller, and make a test handler fire only on
+the transition from zero to nonzero. Compare the result with direct polling
+from Level 2.
 
 ## Level 8: Animate GRAM
 
@@ -1238,6 +1288,22 @@ part of the EXEC contract, so copy a known-good pattern before changing it.
 If you need a different display mode, consult `doc/programming/stic.txt` and
 change both the mode word and the BACKTAB word format consistently.
 
+## Appendix: wiki hardware references
+
+Use these pages from the [Intellivision wiki](https://wiki.intellivision.us/index.php/Main_Page)
+to verify hardware details rather than relying on folklore or emulator
+behavior:
+
+* [Main Page](https://wiki.intellivision.us/index.php/Main_Page)
+* [EXEC](https://wiki.intellivision.us/index.php/EXEC)
+* [Memory Map](https://wiki.intellivision.us/index.php/Memory_Map)
+* [STIC](https://wiki.intellivision.us/index.php/STIC)
+* [Graphics RAM](https://wiki.intellivision.us/index.php/Graphics_RAM)
+* [Hand Controller](https://wiki.intellivision.us/index.php/Hand_Controller)
+* [PSG](https://wiki.intellivision.us/index.php/PSG)
+* [VBlank Period 1](https://wiki.intellivision.us/index.php/VBlank_Period_1)
+* [VBlank Period 2](https://wiki.intellivision.us/index.php/VBlank_Period_2)
+
 ## Appendix: common pitfalls, errors, and misunderstandings
 
 Keep this section open while working through the lessons. Most early failures
@@ -1247,9 +1313,11 @@ code.
 
 ### Build and source problems
 
-* **“The assembler is not recognized.”** The command is `as1600.exe`, not a
-  repository-specific absolute path. Put the SDK `bin` directory on `PATH`, or
-  use a shell where that directory has already been added.
+* **“The assembler is not recognized.”** The repository helper invokes the
+  fixed SDK path
+  `D:\source\Repos\Intellivision\jzintvSDK\bin\as1600.exe`. For manual builds,
+  the command is `as1600.exe`; put the SDK `bin` directory on `PATH`, or use a
+  shell where that directory has already been added.
 * **“The include file cannot be opened.”** Run AS1600 from the example's own
   directory. The learning sources use relative includes such as
   `../../library/gimini.asm`; running from the repository root changes what
